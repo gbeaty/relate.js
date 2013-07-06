@@ -28,22 +28,22 @@ Relate = function() {
 			self.addToListeners = null
 		}
 
-		self.signalUpdated = function(rows) {
+		self.signalUpdate = function(last, next) {
 			var l = self.listeners.length
 			while(--l >= 0) {
-				self.listeners[l].updated(self, rows)
+				self.listeners[l].update(self, last, next)
 			}
 		}
-		self.signalInserted = function(rows) {
+		self.signalInsert = function(row) {
 			var l = self.listeners.length
 			while(--l >= 0) {
-				self.listeners[l].inserted(self, rows)
+				self.listeners[l].insert(self, row)
 			}
 		}
-		self.signalRemoved = function(keys) {
+		self.signalRemove = function(key) {
 			var l = self.listeners.length
 			while(--l >= 0) {
-				self.listeners[l].removed(self, keys)
+				self.listeners[l].remove(self, key)
 			}
 		}
 
@@ -80,22 +80,21 @@ Relate = function() {
 					var oldRow = self.rows[pk]
 					if(oldRow === undefined) {
 						self.rows[pk] = row
+						self.signalInsert(row)
 						inserts.push(row)
 					} else if(upsert) {
 						self.rows[pk] = row
+						self.signalUpdate(oldRow, row)
 						updates.push({last: oldRow, next: row})
 					}
 				}
 			}
 			var results = {}
-			if(updates.length > 0) {
-				self.signalUpdated(updates)
+			if(updates.length)
 				results.updates = updates
-			}
-			if(inserts.length > 0) {
-				self.signalInserted(inserts)
+			if(inserts.length)
 				results.inserts = inserts
-			}
+
 			return results
 		}
 		self.insert = function(toInsert) { return insert(toInsert, false) }
@@ -104,7 +103,7 @@ Relate = function() {
 			var r = pks.length
 			while(--r >= 0) {
 				var pk = pks[r]
-				self.signalRemoved(self.rows[pk])
+				self.signalRemove(self.rows[pk])
 				delete self.rows[pk]
 			}
 		}
@@ -121,7 +120,11 @@ Relate = function() {
 			var p = parents.length
 			while(--p >= 0) {
 				var parent = parents[p]
-				self.inserted(parent, parent.toArray())
+				var rows = parent.toArray()
+				var i = rows.length
+				while(--i >= 0) {
+					self.insert(parent, rows[i])
+				}
 				parent.addToListeners(self)
 			}
 		}
@@ -138,30 +141,21 @@ Relate = function() {
 		return self
 	}
 
-	relate.Map = function(bases, mapper) {
+	relate.Map = function(bases, mapper, keyGen) {
 		var self = derived(bases)
-		var keyGen = bases[0].keyGen
+		keyGen = keyGen ? keyGen : bases[0].keyGen
 
 		var upsert = function(table, row) {
 			self.rows[table.keyGen(row)] = mapper(row, table)
 		}
-		self.inserted = function(table, ins) {
-			var r = ins.length
-			while(--r >= 0) {
-				upsert(table, ins[r])				
-			}
+		self.insert = function(table, ins) {
+			upsert(table, ins)				
 		}
-		self.updated = function(table, ups) {
-			var r = ups.length
-			while(--r >= 0) {
-				upsert(table, ups[r].next)				
-			}
+		self.update = function(table, last, next) {
+			upsert(table, next)				
 		}
-		self.removed = function(table, rems) {
-			var r = ups.length
-			while(--r >= 0) {
-				self.rows[keyGen(rems[r])] = undefined
-			}
+		self.remove = function(table, rem) {
+			self.rows[keyGen(rem)] = undefined
 		}
 
 		self.load()
@@ -173,53 +167,32 @@ Relate = function() {
 		var self = derived([base])
 		self.keyGen = grouper
 
-		var changed = function(changes, applier, signaler) {
-			var c = changes.length
-			var results = []
-			while(--c >= 0) {
-				var row = changes[c]
-				var groupKey = grouper(row)
-				var key = base.keyGen(row)
-				if(groupKey !== undefined && key !== undefined) {
-					applier(key, groupKey, self.rows[groupKey], row)
-					results.push(row)
-				}
-				if(signaler)
-					signaler(results)
+		self.get = function(groupKey) {
+			var grp = self.rows[groupKey]
+			if(grp === undefined) {
+				grp = self.rows[groupKey] = relate.Map([], identity, base.keyGen)
 			}
+			return grp
 		}
 
-		var inserted = function(table, ins, signaler) {
-			changed(ins, function(key, groupKey, group, row) {
-				if(group === undefined)
-					group = self.rows[groupKey] = {}
-				group[key] = row
-			}, signaler)
+		self.insert = function(table, row) {
+			var key = grouper(row)
+			self.get(key).insert(table, row)
 		}
-		var removed = function(table, rems, signaler) {
-			changed(rems, function(key, groupKey, group, row) {
-				if(group !== undefined)
-					delete group[key]				
-			}, signaler)
-		}
-
-		self.inserted = function(table, ins) {
-			inserted(table, ins, self.signalInserted)
-		}
-		self.removed = function(table, rems) {
-			removed(table, rems, self.signalRemoved)
-		}
-		self.updated = function(table, ups) {
-			var rems = []
-			var ins = []
-			var u = ups.length
-			while(--u >= 0) {
-				var up = ups[u]
-				rems.push(up.last)
-				ins.push(up.next)
+		self.update = function(table, last, next) {
+			var lastKey = grouper(last)
+			var nextKey = grouper(next)
+			var lastGroup = self.get(lastKey)
+			if(lastKey === nextKey) {
+				lastGroup.update(table, last, next)
+			} else {
+				lastGroup.remove(table, last)
+				self.get(nextKey).insert(table, next)
 			}
-			removed(table, rems)
-			inserted(table, ins, self.signalUpdated)
+		}
+		self.remove = function(table, row) {
+			var key = grouper(row)
+			self.get(key).remove(table, row)
 		}
 
 		self.load()
@@ -231,24 +204,14 @@ Relate = function() {
 		var self = derived(bases)
 		var total = initial
 
-		var change = function(table, rows, op) {
-			var r = rows.length
-			while(--r >= 0) {
-				var result = op(total, rows[r], table)
-				if(result !== undefined)
-					total = result
-			}
+		self.insert = function(table, row) {
+			total = apply(total, row, table)
 		}
-		self.inserted = function(table, rows) {
-			change(table, rows, apply)
+		self.update = function(table, last, next) {
+			total = apply(unapply(total, last, table), next, table)
 		}
-		self.updated = function(table, rows) {
-			change(table, rows, function(tot, row, tab) {
-				return apply(unapply(tot, row.last, tab), row.next, tab)
-			})
-		}
-		self.removed = function(table, rows) {
-			change(table, rows, unapply)
+		self.remove = function(table, row) {
+			total = unapply(total, row, table)
 		}
 
 		self.load()
@@ -289,28 +252,18 @@ Relate = function() {
 			return result
 		}
 
-		self.inserted = function(table, rows) {
+		self.insert = function(table, row) {
 			var i = data.length
-			data = data.concat(rows)
-			while(i < data.length) {
-				flagResort(i)
-				i += 2
-			}
+			data.push(row)
+			flagResort(data.length - 1)
 		}
-		self.updated = function(table, rows) {
-			var i = rows.length
-			while(--i >= 0) {
-				var tuple = rows[i]
-				var index = data.indexOf(tuple.last)
-				data[index] = tuple.next
-				flagResort(index)
-			}
+		self.update = function(table, last, next) {
+			var index = data.indexOf(last)
+			data[index] = next
+			flagResort(index)
 		}
-		self.removed = function(table, rows) {
-			var i = rows.length
-			while(--i >= 0) {
-				data.splice(data.indexOf(rows[i]),1)
-			}
+		self.remove = function(table, row) {
+			data.splice(data.indexOf(row),1)
 		}
 		self.getData = function() {
 			if(needsResort) {

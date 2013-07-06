@@ -16,7 +16,9 @@ var row = function(pk) { return [pk,rand(),rand(),rand(),rand(),rand(),rand(),ra
 var first = row(1)
 
 var person = function(name, city, state, age) { return {name: name, city: city, state: state, age: age} }
-var people = Relate.Table("person", function(p) { return p.name } )
+var people = Relate.Table("person", function(p) {
+	return p.name
+})
 var bob = person("Bob","Miami","FL", 40)
 var bob2 = person("Bob","Dallas","TX", 45)
 var lumbergh = person("Lumbergh","Dallas","TX", 50)
@@ -61,8 +63,8 @@ describe("Mapped Relations", function() {
 	it("should work", function() {
 		expect(formattedPeople.toArray()).toEqual([
 			"Bob from Dallas, TX",
-			"Milton from Dallas, TX",
-			"Lumbergh from Dallas, TX"
+			"Lumbergh from Dallas, TX",
+			"Milton from Dallas, TX"
 		])
 	})
 })
@@ -81,11 +83,11 @@ var stateGroup = people.group(function(p) {
 })
 describe("Groups", function() {
 	it("should work", function() {
-		expect(stateGroup.get("TX")).toEqual({ Bob: bob2, Lumbergh: lumbergh, Milton: milton })
+		expect(stateGroup.get("TX").rows).toEqual({ Bob: bob2, Lumbergh: lumbergh, Milton: milton })
 	})
 
 	it("should not contained removed rows", function() {
-		expect(stateGroup.get("FL")).toEqual({})
+		expect(stateGroup.get("FL").rows).toEqual({})
 	})
 })
 
@@ -96,7 +98,7 @@ describe("Sorting", function() {
 	})
 })
 
-// var peopleStates = stateGroup.join(states)
+var peopleAndStates = stateGroup.join(states)
 /*describe("Joins", function() {
 	it("should join all rows", function() {
 		expect(peopleStates.toArray()).toEqual([])
