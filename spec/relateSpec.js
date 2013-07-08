@@ -30,7 +30,10 @@ var cities = Relate.Table("city", function(c) { return c } )
 var state = function(name, abbriv) { return {name: name, abbriv: abbriv} }
 var states = Relate.Table("state", function(s) { return s.abbriv} )
 var texas = state('Texas','TX')
-states.insert([state('Texas','TX'), state('Florida','FL'), state('Georgia','GA'), state('New York','NY')])
+var florida = state('Florida','FL')
+var georgia = state('Georgia','GA')
+var newYork = state('New York','NY')
+states.insert([texas, florida, georgia, newYork])
 
 describe("Tables", function() {
 	it("should create empty tables", function() {
@@ -58,13 +61,13 @@ describe("Tables", function() {
 	})
 })
 
-var formattedPeople = people.map(function(p) { return p.name + " from " + p.city + ", " + p.state })
+var formattedPeople = people.map(function(p) { return { name: p.name, value: p.name + " from " + p.city + ", " + p.state } })
 describe("Mapped Relations", function() {
 	it("should work", function() {
 		expect(formattedPeople.toArray()).toEqual([
-			"Bob from Dallas, TX",
-			"Lumbergh from Dallas, TX",
-			"Milton from Dallas, TX"
+			{ name: "Bob", value: "Bob from Dallas, TX" },
+			{ name: "Lumbergh", value: "Lumbergh from Dallas, TX" },
+			{ name: "Milton", value: "Milton from Dallas, TX" }
 		])
 	})
 })
@@ -83,11 +86,11 @@ var stateGroup = people.group(function(p) {
 })
 describe("Groups", function() {
 	it("should work", function() {
-		expect(stateGroup.get("TX").rows).toEqual({ Bob: bob2, Lumbergh: lumbergh, Milton: milton })
+		expect(stateGroup.getGroup("TX").rows).toEqual({ Bob: bob2, Lumbergh: lumbergh, Milton: milton })
 	})
 
 	it("should not contained removed rows", function() {
-		expect(stateGroup.get("FL").rows).toEqual({})
+		expect(stateGroup.getGroup("FL").rows).toEqual({})
 	})
 })
 
@@ -98,9 +101,17 @@ describe("Sorting", function() {
 	})
 })
 
-var peopleAndStates = stateGroup.join(states)
-/*describe("Joins", function() {
+var peopleAndStates = stateGroup.outerJoin(states)
+describe("Joins", function() {
 	it("should join all rows", function() {
-		expect(peopleStates.toArray()).toEqual([])
+		var fullOuter = {}
+		fullOuter[["Bob", "TX"]] = [bob2,texas]
+		fullOuter[["Milton", "TX"]] = [milton,texas]
+		fullOuter[["Lumbergh", "TX"]] = [lumbergh,texas]
+		fullOuter[[undefined, "FL"]] = [undefined,florida]
+		fullOuter[[undefined, "GA"]] = [undefined,georgia]
+		fullOuter[[undefined, "NY"]] = [undefined,newYork]
+
+		expect(peopleAndStates.rows).toEqual(fullOuter)
 	})
-})*/
+})
