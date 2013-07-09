@@ -1,3 +1,7 @@
+var rand = function() { return Math.floor(Math.random()*1000000) }
+var row = function(pk) { return [pk,rand(),rand(),rand(),rand(),rand(),rand(),rand()] }
+var first = row(1)
+
 var time = function(its, run, setup, teardown) {
 	if(setup)
 		setup()
@@ -34,7 +38,7 @@ var result = time(
 	},
 	function() {
 		table = Relate.Table("bench", pkgen)
-		ids = table.map(function(r) { return r[0] })
+		ids = table.map(function(r) { return [r[0],r[1]] })
 		bySecond = table.sort(function(a,b) { return a[1] - b[1] })		
 	},
 	function() {
