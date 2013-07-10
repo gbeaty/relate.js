@@ -37,56 +37,58 @@ var peopleFormatter = function(p) { return { name: p.name, value: p.name + " fro
 var formattedPeople = people.map(peopleFormatter)
 var byAge = people.sort(function(a,b) { return a.age - b.age })
 var stateGroup = people.group(function(p) { return p.state })
-var peopleFromTexas = people.count(function(row) { return row.state === "TX" })
+var peopleFromTexas = people.count(function(row) {
+	return row.state === "TX"
+})
 
 describe("Inserts", function() {
-	it("Should return inserted rows", function() {			
-		expect(people.insert(peopleToInsert)).toEqual({inserts: peopleToInsert.reverse()})			
-		expect(states.insert(statesToInsert)).toEqual({inserts: statesToInsert.reverse()})
+	it("Should insert rows", function() {
+		people.insert(peopleToInsert)
+		states.insert(statesToInsert)
 	})
 	it("Should not insert duplicate primary keys", function() {
-		expect(people.insert([bob])).toEqual({})
+		expect(function() { people.insert([bob]) }).toThrow(new Error("Primary key constraint violation for key: Bob"))
 	})
 	describe("Should work with", function() {
-		it("Tables", function() {
-			expect(people.toArray()).toEqual(peopleToInsert)
-			expect(states.toArray()).toEqual(statesToInsert)
+		it("tables", function() {
+			expect(people.toArray()).toEqual(peopleToInsert.reverse())
+			expect(states.toArray()).toEqual(statesToInsert.reverse())
 		})
-		it("Mapped Relations", function() {
+		it("mapped relations", function() {
 			expect(formattedPeople.toArray()).toEqual([peopleFormatter(bob), peopleFormatter(lumbergh), peopleFormatter(milton)].reverse())
 		})
-		it("Sort", function() {
+		it("sorts", function() {
 			expect(byAge.getData()).toEqual([bob,milton,lumbergh])
 		})
-		it("Group", function() {
+		it("groups", function() {
 			expect(stateGroup.getGroup("TX").rows).toEqual({ Lumbergh: lumbergh, Milton: milton })
 			expect(stateGroup.getGroup("FL").rows).toEqual({ Bob: bob })
 		})
-		it("Counts", function() {
+		it("counters", function() {
 			expect(peopleFromTexas()).toEqual(2)
 		})
 	})
 })
 
 describe("Upserts", function() {
-	it("Should return updated rows", function() {
-		expect(people.upsert([bob2])).toEqual({updates: [{last: bob, next: bob2}]})
+	it("should update rows", function() {
+		people.upsert([bob2])
 	})
-	describe("Should work with", function() {
-		it("Tables", function() {
+	describe("should work with", function() {
+		it("tables", function() {
 			expect(people.toArray()).toEqual([bob2,lumbergh,milton].reverse())
 		})
-		it("Mapped Relations", function() {
+		it("mapped relations", function() {
 			expect(formattedPeople.toArray()).toEqual([peopleFormatter(bob2), peopleFormatter(lumbergh), peopleFormatter(milton)].reverse())
 		})
-		it("Sort", function() {
+		it("sorts", function() {
 			expect(byAge.getData()).toEqual([milton,bob2,lumbergh])
 		})
-		it("Group", function() {
+		it("groups", function() {
 			expect(stateGroup.getGroup("TX").rows).toEqual({ Bob: bob2, Lumbergh: lumbergh, Milton: milton })
 			expect(stateGroup.getGroup("FL").rows).toEqual({})
 		})
-		it("Counts", function() {
+		it("counters", function() {
 			expect(peopleFromTexas()).toEqual(3)
 		})
 	})

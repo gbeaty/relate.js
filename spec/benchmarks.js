@@ -34,15 +34,15 @@ for(var i=0; i<num; i++) {
 var result = time(
 	10,
 	function() {
-		table.insert(rows)
+		table.upsert(rows)
 	},
 	function() {
 		table = Relate.Table("bench", pkgen)
 		ids = table.map(function(r) { return [r[0],r[1]] })
-		bySecond = table.sort(function(a,b) { return a[1] - b[1] })		
+		//bySecond = table.sort(function(a,b) { return a[1] - b[1] })		
 	},
 	function() {
-		console.log(table.toArray())
+		//console.log(table.toArray())
 	}
 )
 
