@@ -51,8 +51,8 @@ describe("Inserts", function() {
 	})
 	describe("should work with", function() {
 		it("tables", function() {
-			expect(people.toArray()).toEqual(peopleToInsert.reverse())
-			expect(states.toArray()).toEqual(statesToInsert.reverse())
+			expect(people.toArray()).toEqual(peopleToInsert)
+			expect(states.toArray()).toEqual(statesToInsert)
 		})
 		it("mapped relations", function() {
 			expect(formattedPeople.toArray()).toEqual([peopleFormatter(bob), peopleFormatter(lumbergh), peopleFormatter(milton)].reverse())
@@ -76,7 +76,7 @@ describe("Upserts", function() {
 	})
 	describe("should work with", function() {
 		it("tables", function() {
-			expect(people.toArray()).toEqual([bob2,lumbergh,milton].reverse())
+			expect(people.toArray()).toEqual([milton,lumbergh,bob2].reverse())
 		})
 		it("mapped relations", function() {
 			expect(formattedPeople.toArray()).toEqual([peopleFormatter(bob2), peopleFormatter(lumbergh), peopleFormatter(milton)].reverse())
@@ -97,7 +97,7 @@ describe("Upserts", function() {
 describe("Removes", function() {	
 	it("should work", function() {
 		people.remove(["Milton"])
-		expect(people.toArray()).toEqual([lumbergh,bob2])
+		expect(people.toArray()).toEqual([bob2, lumbergh])
 	})
 })
 

@@ -11,16 +11,11 @@ Relate = function() {
 	var relation = function(keyGen) {
 		var self = {}
 		self.pub = {}
-		self.keyGen = function(row) {
-			var key = keyGen(row)
-			if(key === undefined || key === null)
-				throw "Cannot generate key for row: " + row;
-			return key
-		}
+		self.keyGen = keyGen		
 		self.listeners = []
-		var rows = self.rows = {}		
-		var dirty = false
+		var rows = self.rows = {}
 
+		var dirty = false
 		self.dirty = function() { dirty = true }
 
 		self.get = function(key) { return self.rows[key] }
@@ -43,18 +38,27 @@ Relate = function() {
 			self.addToListeners = null
 		}
 
+		var checkKeyGen = function(row) {
+			var key = keyGen(row)
+			if(key === undefined || key === null)
+				throw "Cannot generate key for row: " + row;
+			return key
+		}
+
 		var changes = {}
+		var changesArray = []
 		var change = function(key) {
 			var c = changes[key]
 			if(c === undefined) {
 				c = { row: rows[key] }
 				changes[key] = c
+				changesArray.push(c)
 			}
 			return c
 		}
 
 		self.insert = function(row) {
-			var key = self.keyGen(row)
+			var key = checkKeyGen(row)
 			if(key !== undefined) {
 				var c = change(key)
 				if(c.row === undefined) {
@@ -62,7 +66,6 @@ Relate = function() {
 					c.type = INSERT
 				} else throw "Primary key constraint violation for key: " + key
 			}
-			dirty = true
 		}
 		var update = function(c, last, next) {
 			if(c.type === undefined) {
@@ -78,7 +81,7 @@ Relate = function() {
 			}
 		}
 		self.upsert = function(row) {
-			var key = self.keyGen(row)
+			var key = checkKeyGen(row)
 			if(key !== undefined) {
 				var c = change(key)
 				if(c.type === REMOVE) {
@@ -92,11 +95,10 @@ Relate = function() {
 					c.type = INSERT
 				}
 			}
-			dirty = true
 		}
 		self.update = function(last, next) {
-			var lastKey = self.keyGen(last)
-			var nextKey = self.keyGen(next)
+			var lastKey = checkKeyGen(last)
+			var nextKey = checkKeyGen(next)
 			if(nextKey !== undefined) {
 				if(lastKey === nextKey) {
 					update(change(nextKey), last, next)
@@ -105,39 +107,40 @@ Relate = function() {
 					self.insert(next)
 				}
 			} else throw "Row '" + last + "' not found. Cannot update."
-			dirty = true
 		}
 		self.remove = function(row) {
-			var key = self.keyGen(row)
+			var key = checkKeyGen(row)
 			var c = change(key)
 			if(c.row === undefined)
 				throw "Tried to remove a non-existent row on key: " + key;
 			c.row = row
 			c.type = REMOVE
-			dirty = true
 		}
 		self.removeKey = function(key) {
 			self.remove(rows[key])
 		}
 		self.propagateChanges = function(from, sourceChanges) {
-			for(k in sourceChanges) if(sourceChanges.hasOwnProperty(k)) {
-				var c = sourceChanges[k]
+			var i = sourceChanges.length
+			while(--i >= 0) {
+				var c = sourceChanges[i]
 				switch(c.type) {
 					case UPDATE: self.sourceUpdate(from, c.last, c.row); break
 					case INSERT: self.sourceInsert(from, c.row); break
 					case REMOVE: self.sourceRemove(from, c.row); break
 				}
 			}
-			if(dirty) {
+			if(changesArray.length > 0) {
 				var i = self.listeners.length
 				while(--i >= 0) {
-					self.listeners[i].propagateChanges(self, changes)
+					self.listeners[i].propagateChanges(self, changesArray)
 				}
 			}
 		}
 		var applyChanges = function(toApply) {
-			for(k in toApply) if(toApply.hasOwnProperty(k)) {
-				var c = toApply[k]
+			var i = toApply.length
+			while(--i >= 0) {				
+				var c = toApply[i]
+				var k = keyGen(c.row)
 				if(c.type === REMOVE) {
 					delete rows[k]
 				} else {
@@ -145,16 +148,15 @@ Relate = function() {
 				}
 			}
 		}
-		self.commit = function(nonTransactional) {
-			if(dirty) {
-				applyChanges(changes)
-				if(nonTransactional)
-					applyChanges(nonTransactional)
+		self.commit = function() {
+			if(changesArray.length > 0 || dirty) {
+				applyChanges(changesArray)
 				var i = self.listeners.length
 				while(--i >= 0) {
 					self.listeners[i].commit()
 				}
 				changes = {}
+				changesArray = []
 				dirty = false
 			}
 		}
@@ -164,6 +166,8 @@ Relate = function() {
 				self.listeners[i].rollback()
 			}
 			changes = {}
+			changesArray = []
+			dirty = false
 		}
 
 		self.addToListeners = function(rel) {
@@ -216,18 +220,10 @@ Relate = function() {
 			self.propagateChanges(self, {})
 			self.commit()
 		}
-		self.pub.insert = function(rows) {
-			change(rows, self.insert)
-		}
-		self.pub.remove = function(keys) {
-			change(keys, self.removeKey)
-		}
-		self.pub.update = function(rows) {
-			change(rows, self.update)
-		}
-		self.pub.upsert = function(rows) {
-			change(rows, self.upsert)
-		}
+		self.pub.insert = function(rows) { change(rows, self.insert)    }
+		self.pub.remove = function(keys) { change(keys, self.removeKey) }
+		self.pub.update = function(rows) { change(rows, self.update)    }
+		self.pub.upsert = function(rows) { change(rows, self.upsert)    }
 
 		return self.pub
 	}
@@ -386,6 +382,38 @@ Relate = function() {
 		var self = derived([relation])
 		var needsResort = false
 		var data = []
+		var indices = {}
+		var removedIndices = []
+		var keyGen = relation.keyGen
+
+		var indexOf = function(row) {
+			var key = keyGen(row)
+			var index = indices[key]
+			var i = removedIndices.length
+			while(--i >= 0) {
+				var ri = removedIndices[i]
+				if(index >= ri.index) {
+					index -= ri.removed
+				}
+			}
+			return index
+		}
+
+		var resort = function() {
+			if(needsResort) {
+				data.sort(comparer)
+				
+				indices = {}
+				removedIndices = []
+				var i = data.length
+				while(--i >= 0) {
+					var row = data[i]
+					indices[keyGen(row)] = i
+				}
+
+				needsResort = false
+			}
+		}
 
 		var flagResort = function(index) {
 			var prev = data[index-1]
@@ -399,23 +427,23 @@ Relate = function() {
 		}
 
 		self.sourceInsert = function(table, row) {
-			var i = data.length
+			var index = data.length
 			data.push(row)
-			flagResort(data.length - 1)
+			indices[keyGen(row)] = index
+			flagResort(index)
 		}
 		self.sourceUpdate = function(table, last, next) {
-			var index = data.indexOf(last)
+			var index = indexOf(last)
 			data[index] = next
 			flagResort(index)
 		}
 		self.sourceRemove = function(table, row) {
-			data.splice(data.indexOf(row),1)
+			var i = indexOf(row)
+			data.splice(i,1)
+			removedIndices.push({ index: i, removed: 1 })
 		}
 		self.getData = function() {
-			if(needsResort) {
-				data.sort(comparer)
-				needsResort = false
-			}
+			resort()
 			return data
 		}
 		return self
