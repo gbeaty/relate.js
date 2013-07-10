@@ -378,8 +378,7 @@ Relate = function() {
 		return relate.Sum(bases, count)
 	}
 
-	var sort = function(relation, comparer) {
-		var self = derived([relation])
+	var sort = function(relation, comparer) {		
 		var needsResort = false
 		var data = []
 		var indices = {}
@@ -426,27 +425,29 @@ Relate = function() {
 			return result
 		}
 
-		self.sourceInsert = function(table, row) {
+		var sourceInsert = function(table, row) {
 			var index = data.length
 			data.push(row)
 			indices[keyGen(row)] = index
 			flagResort(index)
 		}
-		self.sourceUpdate = function(table, last, next) {
+		var sourceUpdate = function(table, last, next) {
 			var index = indexOf(last)
 			data[index] = next
 			flagResort(index)
 		}
-		self.sourceRemove = function(table, row) {
+		var sourceRemove = function(table, row) {
 			var i = indexOf(row)
 			data.splice(i,1)
 			removedIndices.push({ index: i, removed: 1 })
 		}
-		self.getData = function() {
+
+		var self = derived([relation], relation.keyGen, sourceInsert, sourceUpdate, sourceRemove)
+		self.pub.getData = function() {
 			resort()
 			return data
 		}
-		return self
+		return self.pub
 	}
 
 	relate.LeftOuterJoin = function(left, right, joinMapper) {
@@ -476,9 +477,6 @@ Relate = function() {
 			key[1] = toKey(right, 1)
 			return key
 		}
-
-		var self = derived([left,right], keyGen)
-		self.keyGen = keyGen
 
 		var joinRow = function(table, row) {
 			var otherTable = (table === left) ? right : left
@@ -515,7 +513,7 @@ Relate = function() {
 
 			return changes
 		}
-		self.sourceInsert = function(table, row) {
+		var sourceInsert = function(table, row) {
 			var changes = joinRow(table, row)
 			var i = changes.length
 			while(--i >= 0) {
@@ -526,14 +524,14 @@ Relate = function() {
 				self.insert(change)
 			}
 		}
-		self.sourceUpdate = function(table, last, next) {
+		var sourceUpdate = function(table, last, next) {
 			console.log(joinRow(table, last))
 			console.log(joinRow(table, next))
 		}
-		self.sourceRemove = function(table, row) {
+		var sourceRemove = function(table, row) {
 			var key = table.keyGen(row)
 		}
-		return self
+		return derived([left,right], keyGen, sourceInsert, sourceUpdate, sourceRemove).pub
 	}
 
 	return relate
