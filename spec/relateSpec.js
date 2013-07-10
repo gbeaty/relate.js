@@ -42,14 +42,14 @@ var peopleFromTexas = people.count(function(row) {
 })
 
 describe("Inserts", function() {
-	it("Should insert rows", function() {
+	it("should insert rows", function() {
 		people.insert(peopleToInsert)
 		states.insert(statesToInsert)
 	})
-	it("Should not insert duplicate primary keys", function() {
+	it("should not insert duplicate primary keys", function() {
 		expect(function() { people.insert([bob]) }).toThrow(new Error("Primary key constraint violation for key: Bob"))
 	})
-	describe("Should work with", function() {
+	describe("should work with", function() {
 		it("tables", function() {
 			expect(people.toArray()).toEqual(peopleToInsert.reverse())
 			expect(states.toArray()).toEqual(statesToInsert.reverse())
@@ -95,7 +95,7 @@ describe("Upserts", function() {
 })
 
 describe("Removes", function() {	
-	it("Should work", function() {
+	it("should work", function() {
 		people.remove(["Milton"])
 		expect(people.toArray()).toEqual([lumbergh,bob2])
 	})

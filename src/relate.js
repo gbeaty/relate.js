@@ -135,16 +135,21 @@ Relate = function() {
 				}
 			}
 		}
-		self.commit = function() {
-			if(dirty) {
-				for(k in changes) if(changes.hasOwnProperty(k)) {
-					var c = changes[k]
-					switch(c.type) {
-						case UPDATE: rows[k] = c.row; break
-						case INSERT: rows[k] = c.row; break
-						case REMOVE: delete rows[k]; break
-					}
+		var applyChanges = function(toApply) {
+			for(k in toApply) if(toApply.hasOwnProperty(k)) {
+				var c = toApply[k]
+				if(c.type === REMOVE) {
+					delete rows[k]
+				} else {
+					rows[k] = c.row
 				}
+			}
+		}
+		self.commit = function(nonTransactional) {
+			if(dirty) {
+				applyChanges(changes)
+				if(nonTransactional)
+					applyChanges(nonTransactional)
 				var i = self.listeners.length
 				while(--i >= 0) {
 					self.listeners[i].commit()
