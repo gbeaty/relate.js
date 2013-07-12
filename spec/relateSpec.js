@@ -8,11 +8,12 @@ var time = function(its, f) {
 }
 
 var keyMaker = function(r) { return r[0] }
-var t1 = Relate.Table("t1", keyMaker)
-var t2 = Relate.Table("t2", keyMaker)
+var db = Relate.db()
+var t1 = db.table(keyMaker)
+var t2 = db.table(keyMaker)
 
 var person = function(name, city, state, age) { return {name: name, city: city, state: state, age: age} }
-var people = Relate.Table("person", function(p) {
+var people = db.table(function(p) {
 	return p.name
 })
 var bob = person("Bob","Miami","FL", 40)
@@ -21,10 +22,10 @@ var lumbergh = person("Lumbergh","Dallas","TX", 50)
 var milton = person("Milton","Dallas","TX", 42)
 
 var city = function(name, state) { return {name: name, state: state} }
-var cities = Relate.Table("city", function(c) { return c } )
+var cities = db.table(function(c) { return c } )
 
 var state = function(name, abbriv) { return {name: name, abbriv: abbriv} }
-var states = Relate.Table("state", function(s) { return s.abbriv} )
+var states = db.table(function(s) { return s.abbriv} )
 var texas = state('Texas','TX')
 var florida = state('Florida','FL')
 var georgia = state('Georgia','GA')
@@ -51,11 +52,15 @@ describe("Inserts", function() {
 	})
 	describe("should work with", function() {
 		it("tables", function() {
-			expect(people.toArray()).toEqual(peopleToInsert)
-			expect(states.toArray()).toEqual(statesToInsert)
+			expect(people.getRows()).toEqual({ Bob: bob, Lumbergh: lumbergh, Milton: milton })
+			expect(states.getRows()).toEqual({ TX: texas, FL: florida, GA: georgia, NY: newYork })
 		})
 		it("mapped relations", function() {
-			expect(formattedPeople.toArray()).toEqual([peopleFormatter(bob), peopleFormatter(lumbergh), peopleFormatter(milton)].reverse())
+			expect(formattedPeople.getRows()).toEqual({
+				Bob: peopleFormatter(bob),
+				Lumbergh: peopleFormatter(lumbergh),
+				Milton: peopleFormatter(milton)
+			})
 		})
 		it("sorts", function() {
 			expect(byAge.getData()).toEqual([bob,milton,lumbergh])
@@ -76,10 +81,14 @@ describe("Upserts", function() {
 	})
 	describe("should work with", function() {
 		it("tables", function() {
-			expect(people.toArray()).toEqual([milton,lumbergh,bob2].reverse())
+			expect(people.getRows()).toEqual({ Bob: bob2, Lumbergh: lumbergh, Milton: milton })
 		})
 		it("mapped relations", function() {
-			expect(formattedPeople.toArray()).toEqual([peopleFormatter(bob2), peopleFormatter(lumbergh), peopleFormatter(milton)].reverse())
+			expect(formattedPeople.getRows()).toEqual({
+				Bob: peopleFormatter(bob2),
+				Lumbergh: peopleFormatter(lumbergh),
+				Milton: peopleFormatter(milton)
+			})
 		})
 		it("sorts", function() {
 			expect(byAge.getData()).toEqual([milton,bob2,lumbergh])
@@ -97,12 +106,12 @@ describe("Upserts", function() {
 describe("Removes", function() {	
 	it("should work", function() {
 		people.remove(["Milton"])
-		expect(people.toArray()).toEqual([bob2, lumbergh])
+		expect(people.getRows()).toEqual({ Bob: bob2, Lumbergh: lumbergh })
 	})
 })
 
-/*var peopleAndStates = stateGroup.outerJoin(states)
-describe("Joins", function() {
+// var peopleAndStates = stateGroup.outerJoin(states)
+/*describe("Joins", function() {
 	it("should join all rows", function() {
 		var fullOuter = {}
 		fullOuter[["Bob", "TX"]] = [bob2,texas]
