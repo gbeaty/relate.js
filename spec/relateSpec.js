@@ -110,7 +110,7 @@ describe("Removes", function() {
 	})
 })
 
-// var peopleAndStates = stateGroup.outerJoin(states)
+var peopleAndStates = stateGroup.outerJoin(states)
 /*describe("Joins", function() {
 	it("should join all rows", function() {
 		var fullOuter = {}

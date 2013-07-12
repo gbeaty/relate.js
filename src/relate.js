@@ -32,14 +32,22 @@ Relate = function() {
 
 	relate.db = function() {
 		var db = {}
-		var tables = []
 		var lastId = 0
+		var inTransaction = false
 
-		db.commit = function() {
-			var i = tables.length
-			while(--i >= 0) {
-				tables[i].commit()
+		db.transaction = function(trans) {
+			var result = null
+			inTransaction = true
+			try {
+				trans()
+			} catch(err) {
+				result = err
+				forTables(function(t) {
+					
+				})
 			}
+			inTransaction = false
+			return result
 		}
 
 		var simpleRelation = function(keyGen) {
@@ -71,134 +79,67 @@ Relate = function() {
 				return key
 			}
 
-			var changes = {}
-			var changesArray = []
-			var change = function(key) {
-				var c = changes[key]
-				if(c === undefined) {
-					c = { row: rows[key] }
-					changes[key] = c
-					changesArray.push(c)
-				}
-				return c
-			}
-
 			self.insert = function(row) {
 				var key = checkKeyGen(row)
 				if(key !== undefined) {
-					var c = change(key)
-					if(c.row === undefined) {
-						c.row = row
-						c.type = INSERT
+					if(rows[key] === undefined) {
+						rows[key] = row
+						self.pub.forListeners(function(l) { l.sourceInsert(self, row) })
 					} else throw "Primary key constraint violation for key: " + key
 				}
 			}
-			var update = function(c, last, next) {
-				if(c.type === undefined) {
-					c.type = UPDATE
-					c.last = last
-					c.row = next
-				} else if(c.type === UPDATE) {
-					c.row = next
-				} else if(c.type === INSERT) {
-					c.row = next
-				} else if(c.type === REMOVE) {
-					throw "Cannot update removed row: " + last
+			var update = function(last, next, lastKey, nextKey) {
+				if(lastKey !== nextKey) {
+					self.remove(last)
+					self.insert(next)
+				} else {
+					self.pub.forListeners(function(l) { l.sourceUpdate(self, last, next) })
+					rows[nextKey] = next
 				}
 			}
 			self.upsert = function(row) {
 				var key = checkKeyGen(row)
 				if(key !== undefined) {
-					var c = change(key)
-					if(c.type === REMOVE) {
-						c.type = UPDATE
-						c.last = c.row
-						c.row = row
-					} else if(c.row !== undefined) {
-						update(c, c.row, row)
+					var existing = rows[key]
+					if(existing === undefined) {
+						self.insert(row)
 					} else {
-						c.row = row
-						c.type = INSERT
+						update(existing, row, keyGen(existing), key)
 					}
 				}
 			}
 			self.update = function(last, next) {
 				var lastKey = checkKeyGen(last)
 				var nextKey = checkKeyGen(next)
-				if(nextKey !== undefined) {
-					if(lastKey === nextKey) {
-						update(change(nextKey), last, next)
-					} else {
-						self.remove(last)
-						self.insert(next)
-					}
-				} else throw "Row '" + last + "' not found. Cannot update."
+				update(last, next, checkKeyGen(last), checkKeyGen(next))
 			}
 			self.remove = function(row) {
 				var key = checkKeyGen(row)
-				var c = change(key)
-				if(c.row === undefined)
-					throw "Tried to remove a non-existent row on key: " + key;
-				c.row = row
-				c.type = REMOVE
+				if(rows[key] === undefined)
+					throw "Tried to remove a non-existent row with key: " + key;
+				self.pub.forListeners(function(l) { l.sourceRemove(self, row) })
+				delete rows[key]
 			}
 			self.removeKey = function(key) {
 				self.remove(rows[key])
-			}
-			self.propagateChanges = function(from, sourceChanges) {
-				var i = sourceChanges.length
-				while(--i >= 0) {
-					var c = sourceChanges[i]
-					switch(c.type) {
-						case UPDATE: self.sourceUpdate(from, c.last, c.row); break
-						case INSERT: self.sourceInsert(from, c.row); break
-						case REMOVE: self.sourceRemove(from, c.row); break
-					}
-				}
-				if(changesArray.length > 0 || dirty) {
-					self.pub.forListeners(function(l) { l.propagateChanges(self, changesArray) })
-				}
-			}
-			var applyChanges = function(toApply) {
-				var i = toApply.length
-				while(--i >= 0) {				
-					var c = toApply[i]
-					var k = keyGen(c.row)
-					if(c.type === REMOVE) {
-						delete rows[k]
-					} else {
-						rows[k] = c.row
-					}
-				}
-			}
-			self.commit = function() {
-				if(changesArray.length > 0 || dirty) {
-					applyChanges(changesArray)
-					self.pub.forListeners(function(l) { l.commit() })
-
-					changes = {}
-					changesArray = []
-					dirty = false
-				}
-			}
-			self.rollback = function() {			
-				var i = self.listeners.length
-				while(--i >= 0) {
-					self.listeners[i].rollback()
-				}
-				changes = {}
-				changesArray = []
-				dirty = false
 			}
 
 			return self
 		}
 
-		var relations = simpleRelation(function(rel) { return rel.pub.id })
+		var relationKeyGen = function(rel) { return rel.pub.id }
+		var relations = simpleRelation(relationKeyGen)
+		var tables = simpleRelation(relationKeyGen)
+		var forTables = function(op) {
+			var ts = tables.getRows()
+			for(k in ts) if(ts.hasOwnProperty(k)) {
+				op(ts[k])
+			}
+		}
 
 		var relation = function(keyGen) {
 			var self = simpleRelation(keyGen)
-			self.pub.id = lastId++			
+			self.pub.id = lastId++
 
 			// Public functions:
 			self.pub.group = function(groupGen) {
@@ -218,7 +159,6 @@ Relate = function() {
 			}
 
 			relations.insert(self)
-			relations.commit()
 			return self
 		}
 
@@ -233,14 +173,13 @@ Relate = function() {
 				while(--i >= 0) {
 					op(rows[i])
 				}
-				self.propagateChanges(self, {})
-				self.commit()
 			}
 			self.pub.insert = function(rows) { change(rows, self.insert)    }
 			self.pub.remove = function(keys) { change(keys, self.removeKey) }
 			self.pub.update = function(rows) { change(rows, self.update)    }
 			self.pub.upsert = function(rows) { change(rows, self.upsert)    }
 
+			tables.insert(self)
 			return self.pub
 		}
 
