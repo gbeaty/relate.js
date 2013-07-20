@@ -5,6 +5,17 @@ Relate = function() {
 	var noop = function() {}
 	var noobj = {}
 	var idGen = function(row) { return row.id }
+	var scalarKeyCompare = function(k1, k2) { return k1 === k2 }
+	var arrayKeyCompare = function(k1, k2) {
+		var i = k1.length
+		if(i !== k2.length)
+			return false
+		while(--i >= 0) {
+			if(k1[i] !== k2[i])
+				return false
+		}
+		return true
+	}
 
 	var cartProd = function(paramArray) {
 		function addTo(curr, args) {
@@ -42,8 +53,6 @@ Relate = function() {
 			}
 		}
 
-		self.broadcast
-
 		return self
 	}
 
@@ -67,12 +76,15 @@ Relate = function() {
 			return result
 		}
 
-		var simpleRelation = function(keyGen) {
+		var simpleRelation = function(keyGen, keyCompare) {
 			var self = {}
 			self.pub = broadcasts()
 			self.keyGen = keyGen		
 			var rows = self.rows = {}
 			var rowCount = 0
+
+			if(!keyCompare)
+				keyCompare = scalarKeyCompare
 
 			var dirty = false
 			self.dirty = function() { dirty = true }
@@ -129,8 +141,8 @@ Relate = function() {
 				}
 				return false
 			}
-			var update = function(last, next, lastKey, nextKey) {
-				if(lastKey !== nextKey) {
+			self.updateForKeys = function(last, next, lastKey, nextKey) {
+				if(!keyCompare(lastKey, nextKey)) {
 					self.remove(last)
 					self.insert(next)
 				} else {					
@@ -145,14 +157,12 @@ Relate = function() {
 					if(existing === undefined) {
 						self.insert(row)
 					} else {
-						update(existing, row, keyGen(existing), key)
+						self.updateForKeys(existing, row, keyGen(existing), key)
 					}
 				}
 			}
 			self.update = function(last, next) {
-				var lastKey = checkKeyGen(last)
-				var nextKey = checkKeyGen(next)
-				update(last, next, checkKeyGen(last), checkKeyGen(next))
+				self.updateForKeys(last, next, checkKeyGen(last), checkKeyGen(next))
 			}
 			self.remove = function(row) {
 				if(!self.removeIfExists(row)) {
@@ -188,8 +198,8 @@ Relate = function() {
 			}
 		}
 
-		var relation = function(keyGen) {
-			var self = simpleRelation(keyGen)
+		var relation = function(keyGen, keyCompare) {
+			var self = simpleRelation(keyGen, keyCompare)
 			self.pub.id = lastId++
 
 			// Public functions:
@@ -199,8 +209,8 @@ Relate = function() {
 			self.pub.map = function(rowMapper) {
 				return db.Map([self], rowMapper)
 			}
-			self.pub.join = function(rels) {
-				return db.Join([self].concat(rels))
+			self.pub.join = function(sources, keyGen, requires) {
+				return db.Join([self].concat(sources), keyGen, requires)
 			}
 			self.pub.count = function(counter) {
 				return db.Count([self], counter)
@@ -234,8 +244,8 @@ Relate = function() {
 			return self.pub
 		}
 
-		var derived = function(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove) {
-			var self = relation(keyGen)
+		var derived = function(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove, keyCompare) {
+			var self = relation(keyGen, keyCompare)
 			var sup = {}
 			var i = sources.length
 			while(--i >= 0) {
@@ -333,7 +343,7 @@ Relate = function() {
 				nextKey = grouper(next, table)
 				var lastGroup = getGroup(lastKey)
 				if(lastKey === nextKey) {
-					lastGroup.update(last, next)
+					lastGroup.updateForKeys(last, next, lastKey, nextKey)
 				} else {
 					lastGroup.remove(last)
 					getGroup(nextKey).insert(next)
@@ -462,8 +472,20 @@ Relate = function() {
 			return self.pub
 		}
 
-		db.Join = function(sources, required) {
-			required = required ? required : noobj
+		db.Join = function(sources, keyGen, required) {
+			if(!required)
+				required = noobj
+
+			if(!keyGen)
+				keyGen = function(join) {
+					var key = []
+					var i = sources.length
+					while(--i >= 0) {
+						if(join[i] !== undefined)
+							key[i] = sources[i].keyGen(join[i])
+					}
+					return key
+				}
 
 			var rowsFor = function(table, joinOn) {
 				if(table.pub.getGroupFor)
@@ -478,15 +500,6 @@ Relate = function() {
 			}
 			var keyFor = function(table, row) {
 				return table.pub.groupKeyGen ? table.pub.groupKeyGen(row) : table.keyGen(row)
-			}
-			var keyGen = function(join) {
-				var key = []
-				var i = sources.length
-				while(--i >= 0) {
-					key[i] = (join[i] !== undefined) ? sources[i].keyGen(join[i]) : undefined
-
-				}
-				return key
 			}
 			var joinsFor = function(joinOn, table, row) {
 				var rows = []
@@ -522,18 +535,9 @@ Relate = function() {
 			}
 			var sourceUpdate = function(table, last, next) {
 				var lastJoinOn = keyFor(table, last)
-				var nextJoinOn = keyFor(table, next)								
-				var keyChanged = false
+				var nextJoinOn = keyFor(table, next)
 
-				var i = lastJoinOn.length
-				while(--i >= 0) {
-					if(lastJoinOn[i] !== nextJoinOn[i]) {
-						keyChanged = true
-						break;
-					}
-				}
-
-				if(keyChanged) {
+				if(lastJoinOn !== nextJoinOn) {
 					sourceRemove(table, last)
 					sourceInsert(table, next)
 				} else {
@@ -555,24 +559,13 @@ Relate = function() {
 					self.remove(join)
 					join[sourceIndex] = undefined
 					var j = sources.length
-					/*var otherRows = false
-					while(--j >= 0) if(j !== sourceIndex && hasRowsFor(sources[j], joinOn)) {
-						otherRows = true
-						break
-					}*/
 					if(!hasRowsFor(sources[sourceIndex], joinOn)) {
 						self.insert(join)
 					}
 				}
-				/*if(!required[sourceIndex]) {
-
-					row[sourceIndex] = undefined
-					self.insert(row)
-					//rows = joinsFor(joinOn)
-				}*/
 			}
 
-			self = derived(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove)
+			self = derived(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove, arrayKeyCompare)
 			return self.pub
 		}
 
@@ -581,13 +574,3 @@ Relate = function() {
 
 	return relate
 }()
-/*
-Bob, Florida
-Milton, Texas
-Lumbergh, Texas
-
-remove Milton
-
-Bob, Florida
-Lumbergh, Texas
-*/

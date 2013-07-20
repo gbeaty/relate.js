@@ -24,28 +24,32 @@ var rand = function() { return Math.floor(Math.random()*1000000) }
 var row = function(pk) { return [pk,rand(),rand(),rand(),rand(),rand(),rand(),rand()] }
 var sorter = function(a,b) { return a[1] - b[1] }
 
-var table, ids, bySecond
+var table, table2, join, ids, bySecond
 var num = 50000
 
-var rows = []
+var rows = [], rows2 = []
 for(var i=0; i<num; i++) {
 	rows.push(row(i))
+	rows2.push(row(i))
 }
 
 var result = time(
 	"Relations",
-	20,
+	1,
 	function() {
 		table.upsert(rows)
+		table2.upsert(rows2)
 	},
 	function() {
 		table = db.table(pkgen)
+		table2 = db.table(pkgen)
+		join = table.join(table2)
 		ids = table.map(function(r) { return [r[0],r[1]] })
 		bySecond = table.sort(function(a,b) { return a[1] - b[1] })
 		bySecond.getData()
 	},
 	function() {
-		//console.log(table.toArray())
+		//console.log(join.getRows())
 	},
 	num
 )
