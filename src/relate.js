@@ -3,9 +3,26 @@ Relate = function() {
 
 	var identity = function(a) { return a }
 	var noop = function() {}
-	var INSERT = 1
-	var REMOVE = 2
-	var UPDATE = 3
+	var noobj = {}
+	var idGen = function(row) { return row.id }
+
+	var cartProd = function(paramArray) {
+		function addTo(curr, args) {
+	    	var i, copy, rest = args.slice(1), last = !rest.length, result = [];
+	    	for (i = 0; i < args[0].length; i++) {
+	    		copy = curr.slice();
+	    		copy.push(args[0][i]);
+	      
+				if (last) {
+					result.push(copy);
+				} else {
+					result = result.concat(addTo(copy, rest));
+				}
+			}
+			return result;
+		}
+		return addTo([], paramArray);
+	}
 
 	var broadcasts = function() {
 		var self = {}
@@ -43,7 +60,7 @@ Relate = function() {
 			} catch(err) {
 				result = err
 				forTables(function(t) {
-					
+
 				})
 			}
 			inTransaction = false
@@ -54,7 +71,8 @@ Relate = function() {
 			var self = {}
 			self.pub = broadcasts()
 			self.keyGen = keyGen		
-			var rows = self.rows = {}	
+			var rows = self.rows = {}
+			var rowCount = 0
 
 			var dirty = false
 			self.dirty = function() { dirty = true }
@@ -62,9 +80,17 @@ Relate = function() {
 			self.get = function(key) { return self.rows[key] }
 
 			self.pub.getRows = function() { return rows }
+			self.pub.get = function(key) { return rows[key] }
+			self.toArray = function() {
+				var result = []
+				for(k in rows) if(rows.hasOwnProperty(k)) {
+					result.push(rows[k])
+				}
+				return result
+			}
 
 			self.pub.drop = function() {
-				var l = self.listeners.length
+				var l = self.listeners.length				
 				while(--l >= 0) {
 					self.listeners[l].drop()
 				}
@@ -79,22 +105,37 @@ Relate = function() {
 				return key
 			}
 
+			self.signalInsert = function(row) {
+				self.pub.forListeners(function(l) { l.sourceInsert(self, row) })
+			}
+			self.signalUpdate = function(last, next) {
+				self.pub.forListeners(function(l) { l.sourceUpdate(self, last, next) })
+			}
+			self.signalRemove = function(row) {
+				self.pub.forListeners(function(l) { l.sourceRemove(self, row) })
+			}
+
 			self.insert = function(row) {
+				if(!self.insertIfNotExists(row))
+					throw "Primary key constraint violation for key: " + keyGen(row)
+			}
+			self.insertIfNotExists = function(row) {
 				var key = checkKeyGen(row)
-				if(key !== undefined) {
-					if(rows[key] === undefined) {
-						rows[key] = row
-						self.pub.forListeners(function(l) { l.sourceInsert(self, row) })
-					} else throw "Primary key constraint violation for key: " + key
+				if(rows[key] === undefined) {
+					rows[key] = row
+					rowCount++
+					self.signalInsert(row)
+					return true
 				}
+				return false
 			}
 			var update = function(last, next, lastKey, nextKey) {
 				if(lastKey !== nextKey) {
 					self.remove(last)
 					self.insert(next)
-				} else {
-					self.pub.forListeners(function(l) { l.sourceUpdate(self, last, next) })
+				} else {					
 					rows[nextKey] = next
+					self.signalUpdate(last, next)
 				}
 			}
 			self.upsert = function(row) {
@@ -114,15 +155,25 @@ Relate = function() {
 				update(last, next, checkKeyGen(last), checkKeyGen(next))
 			}
 			self.remove = function(row) {
-				var key = checkKeyGen(row)
-				if(rows[key] === undefined)
-					throw "Tried to remove a non-existent row with key: " + key;
-				self.pub.forListeners(function(l) { l.sourceRemove(self, row) })
-				delete rows[key]
+				if(!self.removeIfExists(row)) {
+					throw "Tried to remove a non-existent row with key: " + keyGen(row);
+				}
+			}
+			self.removeIfExists = function(row) {
+				var key = keyGen(row)
+				var row = rows[key]
+				if(key !== undefined && row !== undefined) {
+					delete rows[key]
+					rowCount--
+					self.signalRemove(row)
+					return true
+				}
+				return false
 			}
 			self.removeKey = function(key) {
 				self.remove(rows[key])
 			}
+			self.pub.getRowCount = function() { return rowCount }
 
 			return self
 		}
@@ -148,8 +199,8 @@ Relate = function() {
 			self.pub.map = function(rowMapper) {
 				return db.Map([self], rowMapper)
 			}
-			self.pub.outerJoin = function(rel, mapper) {
-				return db.Join(self, relations.get(rel.id), mapper)
+			self.pub.join = function(rels) {
+				return db.Join([self].concat(rels))
 			}
 			self.pub.count = function(counter) {
 				return db.Count([self], counter)
@@ -163,7 +214,7 @@ Relate = function() {
 		}
 
 		db.table = function(keyGen) {
-			var self = relation(keyGen)
+			var self = relation(keyGen ? keyGen : idGen)
 
 			self.sourceInsert = function(from, row) { self.insert(row) }
 			self.sourceUpdate = function(from, row) { self.update(row) }
@@ -186,6 +237,10 @@ Relate = function() {
 		var derived = function(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove) {
 			var self = relation(keyGen)
 			var sup = {}
+			var i = sources.length
+			while(--i >= 0) {
+				sources[i] = sources[i].pub ? sources[i] : relations.get(sources[i].id)
+			}
 			self.sources = sources
 
 			self.sourceInsert = sourceInsert ? sourceInsert : noop
@@ -270,6 +325,7 @@ Relate = function() {
 			var sourceInsert = function(table, row) {
 				var gkey = grouper(row, table)
 				getGroup(gkey).insert(row)
+				self.signalInsert(row)
 				self.dirty()
 			}
 			var sourceUpdate = function(table, last, next) {
@@ -282,19 +338,21 @@ Relate = function() {
 					lastGroup.remove(last)
 					getGroup(nextKey).insert(next)
 				}
+				self.signalUpdate(last, next)
 				self.dirty()
 			}
 			var sourceRemove = function(table, row) {
 				var gkey = grouper(row, table)
 				var grp = getGroup(gkey)
 				grp.remove(row)
+				self.signalRemove(row)
 				self.dirty()
 			}
 
 			self = derived([base], base.keyGen, sourceInsert, sourceUpdate, sourceRemove)
 			self.pub.groupKeyGen = grouper
 			self.pub.getGroup = getGroup
-			self.pub.getGroupFor = getGroupFor			
+			self.pub.getGroupFor = getGroupFor
 			return self.pub
 		}
 
@@ -404,90 +462,117 @@ Relate = function() {
 			return self.pub
 		}
 
-		db.LeftOuterJoin = function(left, right, joinMapper) {
-			return relate.Join(left, right, function(l,r) {
-				if(left !== undefined) {
-					return joinMapper(l,r)
-				}
-			})
-		}
+		db.Join = function(sources, required) {
+			required = required ? required : noobj
 
-		db.RightOuterJoin = function(left, right, joinMapper) {
-			return relate.Join(left, right, function(l,r) {
-				if(right !== undefined) {
-					return joinMapper(l,r)
-				}
-			})
-		}
-
-		db.Join = function(left, right, joinMapper) {
-			var self
-
-			var keyGen = function(joinedRow) {
+			var rowsFor = function(table, joinOn) {
+				if(table.pub.getGroupFor)
+					return table.pub.getGroup(joinOn).toArray()
+					else {
+						var row = table.rows[joinOn]
+						return (row !== undefined) ? [row] : []
+					}
+			}
+			var hasRowsFor = function(table, joinOn) {
+				return table.pub.getGroupFor ? (table.pub.getGroup(joinOn).pub.getRowCount() > 0) : (table.rows[joinOn] !== undefined)
+			}
+			var keyFor = function(table, row) {
+				return table.pub.groupKeyGen ? table.pub.groupKeyGen(row) : table.keyGen(row)
+			}
+			var keyGen = function(join) {
 				var key = []
-				var toKey = function(rel, index) {
-					return (joinedRow[index] !== undefined) ? rel.keyGen(joinedRow[index]) : undefined
+				var i = sources.length
+				while(--i >= 0) {
+					key[i] = (join[i] !== undefined) ? sources[i].keyGen(join[i]) : undefined
+
 				}
-				key[0] = toKey(left, 0)
-				key[1] = toKey(right, 1)
 				return key
 			}
-
-			var joinRow = function(table, row) {
-				var otherTable = (table === left) ? right : left
-				var joiner = (table === left) ? function(right) { return [row, right] } : function(left) { return [left, row] }
-				var thisKeyGen = (table.groupKeyGen) ? table.groupKeyGen : table.keyGen
-				var changes = []
-
-				var changeTuple = function(thisRow, otherRow) {
-					self.remove(joiner(undefined, otherRow))
-					self.remove(joiner(thisRow, undefined))
-					self.insert(joiner(thisRow, otherRow))			
-				}
-				
-				var v
-				var hasJoin = false
-				if(otherTable.getGroup) {
-					var group = otherTable.getGroupFor(row)
-					var rows = group.rows				
-					for(k in rows) if(rows.hasOwnProperty(k)) {
-						changes.push(joiner(rows[k]))
-						hasJoin = true
+			var joinsFor = function(joinOn, table, row) {
+				var rows = []
+				var i = sources.length
+				var empty = true
+				while(--i >= 0) {					
+					var rel = sources[i]
+					var res = (rel === table) ? [row] : rowsFor(rel, joinOn)
+					if(res.length === 0) {
+						res = required[i] ? [] : [undefined]
 					}
-				} else {
-					v = otherTable.get(thisKeyGen(row))
-					if(v !== undefined) {
-						changes.push(joiner(v))
-						hasJoin = true
+					if(res.legnth > 0 || res[0] !== undefined) {
+						empty = false
 					}
+					rows[i] = res
 				}
-				if(!hasJoin) {
-					changes.push(joiner(undefined))
-				}
-
-				return changes
+				return empty ? [] : cartProd(rows)
 			}
 			var sourceInsert = function(table, row) {
-				console.log(row)
-				var changes = joinRow(table, row)
-				var i = changes.length
+				var joinOn = keyFor(table, row)
+
+				var rows = joinsFor(joinOn, table, undefined)
+				var i = rows.length
 				while(--i >= 0) {
-					var change = changes[i]
-					if(joinMapper) {
-						change = joinMapper(change)
-					}
-					self.insert(change)
+					self.removeIfExists(rows[i])
+				}
+
+				rows = joinsFor(joinOn, table, row)
+				i = rows.length
+				while(--i >= 0) {
+					self.insert(rows[i])
 				}
 			}
 			var sourceUpdate = function(table, last, next) {
-				//console.log(joinRow(table, last))
-				//console.log(joinRow(table, next))
+				var lastJoinOn = keyFor(table, last)
+				var nextJoinOn = keyFor(table, next)								
+				var keyChanged = false
+
+				var i = lastJoinOn.length
+				while(--i >= 0) {
+					if(lastJoinOn[i] !== nextJoinOn[i]) {
+						keyChanged = true
+						break;
+					}
+				}
+
+				if(keyChanged) {
+					sourceRemove(table, last)
+					sourceInsert(table, next)
+				} else {
+					var nexts = joinsFor(nextJoinOn, table, next)
+					var lasts = joinsFor(lastJoinOn, table, next)
+					i = nexts.length
+					while(--i >= 0) {
+						self.update(lasts[i], nexts[i])
+					}
+				}
 			}
 			var sourceRemove = function(table, row) {
-				//var key = table.keyGen(row)
+				var sourceIndex = sources.indexOf(table)
+				var joinOn = keyFor(table, row)
+				var joins = joinsFor(joinOn, table, row)
+				var i = joins.length
+				while(--i >= 0) {
+					var join = joins[i]
+					self.remove(join)
+					join[sourceIndex] = undefined
+					var j = sources.length
+					/*var otherRows = false
+					while(--j >= 0) if(j !== sourceIndex && hasRowsFor(sources[j], joinOn)) {
+						otherRows = true
+						break
+					}*/
+					if(!hasRowsFor(sources[sourceIndex], joinOn)) {
+						self.insert(join)
+					}
+				}
+				/*if(!required[sourceIndex]) {
+
+					row[sourceIndex] = undefined
+					self.insert(row)
+					//rows = joinsFor(joinOn)
+				}*/
 			}
 
-			self = derived([left,right], keyGen, sourceInsert, sourceUpdate, sourceRemove)
+			self = derived(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove)
 			return self.pub
 		}
 
@@ -496,3 +581,13 @@ Relate = function() {
 
 	return relate
 }()
+/*
+Bob, Florida
+Milton, Texas
+Lumbergh, Texas
+
+remove Milton
+
+Bob, Florida
+Lumbergh, Texas
+*/

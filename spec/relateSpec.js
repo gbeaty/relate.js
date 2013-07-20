@@ -41,6 +41,7 @@ var stateGroup = people.group(function(p) { return p.state })
 var peopleFromTexas = people.count(function(row) {
 	return row.state === "TX"
 })
+var peopleAndStates = stateGroup.join([states])
 
 describe("Inserts", function() {
 	it("should insert rows", function() {
@@ -54,6 +55,9 @@ describe("Inserts", function() {
 		it("tables", function() {
 			expect(people.getRows()).toEqual({ Bob: bob, Lumbergh: lumbergh, Milton: milton })
 			expect(states.getRows()).toEqual({ TX: texas, FL: florida, GA: georgia, NY: newYork })
+		})
+		it("affect row counts", function() {
+			expect(people.getRowCount()).toEqual(3)
 		})
 		it("mapped relations", function() {
 			expect(formattedPeople.getRows()).toEqual({
@@ -72,16 +76,29 @@ describe("Inserts", function() {
 		it("counters", function() {
 			expect(peopleFromTexas()).toEqual(2)
 		})
+		it("joins", function() {
+			var fullOuter = {}
+			fullOuter[["Bob", "FL"]] = [bob,florida]
+			fullOuter[["Milton", "TX"]] = [milton,texas]
+			fullOuter[["Lumbergh", "TX"]] = [lumbergh,texas]
+			fullOuter[[undefined, "GA"]] = [undefined,georgia]
+			fullOuter[[undefined, "NY"]] = [undefined,newYork]
+			console.log(peopleAndStates.getRows())
+			expect(peopleAndStates.getRows()).toEqual(fullOuter)
+		})
 	})
 })
 
-describe("Upserts", function() {
+describe("Updates", function() {
 	it("should update rows", function() {
 		people.upsert([bob2])
 	})
 	describe("should work with", function() {
 		it("tables", function() {
 			expect(people.getRows()).toEqual({ Bob: bob2, Lumbergh: lumbergh, Milton: milton })
+		})
+		it("not affect row counts", function() {
+			expect(people.getRowCount()).toEqual(3)
 		})
 		it("mapped relations", function() {
 			expect(formattedPeople.getRows()).toEqual({
@@ -100,27 +117,36 @@ describe("Upserts", function() {
 		it("counters", function() {
 			expect(peopleFromTexas()).toEqual(3)
 		})
+		it("joins", function() {
+			var fullOuter = {}
+			fullOuter[["Bob", "TX"]] = [bob2,texas]
+			fullOuter[["Milton", "TX"]] = [milton,texas]
+			fullOuter[["Lumbergh", "TX"]] = [lumbergh,texas]
+			fullOuter[[undefined, "GA"]] = [undefined,georgia]
+			fullOuter[[undefined, "NY"]] = [undefined,newYork]
+			fullOuter[[undefined, "FL"]] = [undefined,florida]
+			console.log(peopleAndStates.getRows())
+			expect(peopleAndStates.getRows()).toEqual(fullOuter)
+		})
 	})
 })
 
-describe("Removes", function() {	
+describe("Removes", function() {
 	it("should work", function() {
 		people.remove(["Milton"])
 		expect(people.getRows()).toEqual({ Bob: bob2, Lumbergh: lumbergh })
 	})
-})
-
-var peopleAndStates = stateGroup.outerJoin(states)
-/*describe("Joins", function() {
-	it("should join all rows", function() {
-		var fullOuter = {}
-		fullOuter[["Bob", "TX"]] = [bob2,texas]
-		fullOuter[["Milton", "TX"]] = [milton,texas]
-		fullOuter[["Lumbergh", "TX"]] = [lumbergh,texas]
-		fullOuter[[undefined, "FL"]] = [undefined,florida]
-		fullOuter[[undefined, "GA"]] = [undefined,georgia]
-		fullOuter[[undefined, "NY"]] = [undefined,newYork]
-		console.log(peopleAndStates.rows)
-		expect(peopleAndStates.rows).toEqual(fullOuter)
+	it("affect row counts", function() {
+		expect(people.getRowCount()).toEqual(2)
 	})
-})*/
+	it("joins", function() {
+		var fullOuter = {}
+		fullOuter[[undefined, "NY"]] = [undefined,newYork]
+		fullOuter[[undefined, "GA"]] = [undefined,georgia]
+		fullOuter[["Lumbergh", "TX"]] = [lumbergh,texas]		
+		fullOuter[[undefined, "FL"]] = [undefined,florida]
+		fullOuter[["Bob", "TX"]] = [bob2,texas]
+		console.log(peopleAndStates.getRows())
+		expect(peopleAndStates.getRows()).toEqual(fullOuter)
+	})
+})
