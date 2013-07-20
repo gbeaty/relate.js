@@ -48,7 +48,7 @@ Relate = function() {
 		}
 		self.forListeners = function(op) {
 			var i = listeners.length
-			while(--i >= 0) {
+			while(--i >= 0) {				
 				op(listeners[i])
 			}
 		}
@@ -472,20 +472,21 @@ Relate = function() {
 			return self.pub
 		}
 
-		db.Join = function(sources, keyGen, required) {
+		db.Join = function(sources, required) {
+			var self = noobj
+
 			if(!required)
 				required = noobj
 
-			if(!keyGen)
-				keyGen = function(join) {
-					var key = []
-					var i = sources.length
-					while(--i >= 0) {
-						if(join[i] !== undefined)
-							key[i] = sources[i].keyGen(join[i])
-					}
-					return key
+			var keyGen = function(join) {
+				var key = []
+				var i = sources.length
+				while(--i >= 0) {
+					if(join[i] !== undefined)
+						key[i] = sources[i].keyGen(join[i])
 				}
+				return key
+			}
 
 			var rowsFor = function(table, joinOn) {
 				if(table.pub.getGroupFor)
@@ -559,7 +560,7 @@ Relate = function() {
 					self.remove(join)
 					join[sourceIndex] = undefined
 					var j = sources.length
-					if(!hasRowsFor(sources[sourceIndex], joinOn)) {
+					if(!hasRowsFor(sources[sourceIndex], joinOn) && !required[sourceIndex]) {
 						self.insert(join)
 					}
 				}

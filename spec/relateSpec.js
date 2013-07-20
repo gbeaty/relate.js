@@ -42,6 +42,7 @@ var peopleFromTexas = people.count(function(row) {
 	return row.state === "TX"
 })
 var peopleAndStates = stateGroup.join([states])
+var peopleWithStates = stateGroup.join([states], [true, false])
 
 describe("Inserts", function() {
 	it("should insert rows", function() {
@@ -77,14 +78,15 @@ describe("Inserts", function() {
 			expect(peopleFromTexas()).toEqual(2)
 		})
 		it("joins", function() {
-			var fullOuter = {}
-			fullOuter[["Bob", "FL"]] = [bob,florida]
-			fullOuter[["Milton", "TX"]] = [milton,texas]
-			fullOuter[["Lumbergh", "TX"]] = [lumbergh,texas]
-			fullOuter[[undefined, "GA"]] = [undefined,georgia]
-			fullOuter[[undefined, "NY"]] = [undefined,newYork]
-			console.log(peopleAndStates.getRows())
-			expect(peopleAndStates.getRows()).toEqual(fullOuter)
+			var join = {}
+			join[["Bob", "FL"]] = [bob,florida]
+			join[["Milton", "TX"]] = [milton,texas]
+			join[["Lumbergh", "TX"]] = [lumbergh,texas]
+			expect(peopleWithStates.getRows()).toEqual(join)
+
+			join[[undefined, "GA"]] = [undefined,georgia]
+			join[[undefined, "NY"]] = [undefined,newYork]			
+			expect(peopleAndStates.getRows()).toEqual(join)
 		})
 	})
 })
@@ -118,15 +120,16 @@ describe("Updates", function() {
 			expect(peopleFromTexas()).toEqual(3)
 		})
 		it("joins", function() {
-			var fullOuter = {}
-			fullOuter[["Bob", "TX"]] = [bob2,texas]
-			fullOuter[["Milton", "TX"]] = [milton,texas]
-			fullOuter[["Lumbergh", "TX"]] = [lumbergh,texas]
-			fullOuter[[undefined, "GA"]] = [undefined,georgia]
-			fullOuter[[undefined, "NY"]] = [undefined,newYork]
-			fullOuter[[undefined, "FL"]] = [undefined,florida]
-			console.log(peopleAndStates.getRows())
-			expect(peopleAndStates.getRows()).toEqual(fullOuter)
+			var join = {}
+			join[["Bob", "TX"]] = [bob2,texas]
+			join[["Milton", "TX"]] = [milton,texas]
+			join[["Lumbergh", "TX"]] = [lumbergh,texas]
+			expect(peopleWithStates.getRows()).toEqual(join)
+
+			join[[undefined, "GA"]] = [undefined,georgia]
+			join[[undefined, "NY"]] = [undefined,newYork]
+			join[[undefined, "FL"]] = [undefined,florida]
+			expect(peopleAndStates.getRows()).toEqual(join)
 		})
 	})
 })
@@ -140,13 +143,14 @@ describe("Removes", function() {
 		expect(people.getRowCount()).toEqual(2)
 	})
 	it("joins", function() {
-		var fullOuter = {}
-		fullOuter[[undefined, "NY"]] = [undefined,newYork]
-		fullOuter[[undefined, "GA"]] = [undefined,georgia]
-		fullOuter[["Lumbergh", "TX"]] = [lumbergh,texas]		
-		fullOuter[[undefined, "FL"]] = [undefined,florida]
-		fullOuter[["Bob", "TX"]] = [bob2,texas]
-		console.log(peopleAndStates.getRows())
-		expect(peopleAndStates.getRows()).toEqual(fullOuter)
+		var join = {}		
+		join[["Lumbergh", "TX"]] = [lumbergh,texas]				
+		join[["Bob", "TX"]] = [bob2,texas]
+		expect(peopleWithStates.getRows()).toEqual(join)
+
+		join[[undefined, "FL"]] = [undefined,florida]
+		join[[undefined, "NY"]] = [undefined,newYork]
+		join[[undefined, "GA"]] = [undefined,georgia]
+		expect(peopleAndStates.getRows()).toEqual(join)
 	})
 })
