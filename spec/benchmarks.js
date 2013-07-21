@@ -49,7 +49,7 @@ var result = time(
 		bySecond.getData()
 	},
 	function() {
-		//console.log(join.getRows())
+		console.log(join.get([1,1]))
 	},
 	num
 )

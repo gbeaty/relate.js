@@ -41,8 +41,14 @@ var stateGroup = people.group(function(p) { return p.state })
 var peopleFromTexas = people.count(function(row) {
 	return row.state === "TX"
 })
-var peopleAndStates = stateGroup.join([states])
+var peopleOrStates = stateGroup.join([states])
 var peopleWithStates = stateGroup.join([states], [true, false])
+var statesWithPeople = states.join([stateGroup], [true, false])
+var peopleAndStates = stateGroup.join([states], [true, true])
+
+var peopleOrStatesResults = {}
+var statesWithPeopleResults = {}
+var peopleWithStatesResults = {}
 
 describe("Inserts", function() {
 	it("should insert rows", function() {
@@ -77,16 +83,28 @@ describe("Inserts", function() {
 		it("counters", function() {
 			expect(peopleFromTexas()).toEqual(2)
 		})
-		it("joins", function() {
-			var join = {}
-			join[["Bob", "FL"]] = [bob,florida]
-			join[["Milton", "TX"]] = [milton,texas]
-			join[["Lumbergh", "TX"]] = [lumbergh,texas]
-			expect(peopleWithStates.getRows()).toEqual(join)
-
-			join[[undefined, "GA"]] = [undefined,georgia]
-			join[[undefined, "NY"]] = [undefined,newYork]			
-			expect(peopleAndStates.getRows()).toEqual(join)
+		it("joins with required people", function() {
+			peopleWithStatesResults[["Bob", "FL"]] = [bob,florida]
+			peopleWithStatesResults[["Milton", "TX"]] = [milton,texas]
+			peopleWithStatesResults[["Lumbergh", "TX"]] = [lumbergh,texas]
+			expect(peopleWithStates.getRows()).toEqual(peopleWithStatesResults)			
+		})
+		it("joins with required people and states", function() {
+			expect(peopleAndStates.getRows()).toEqual(peopleWithStatesResults)
+		})
+		it("full joins", function() {
+			peopleOrStatesResults = _.clone(peopleWithStatesResults)
+			peopleOrStatesResults[[undefined, "GA"]] = [undefined,georgia]
+			peopleOrStatesResults[[undefined, "NY"]] = [undefined,newYork]
+			expect(peopleOrStates.getRows()).toEqual(peopleOrStatesResults)
+		})
+		it("joins with required states", function() {
+			statesWithPeopleResults[["FL", "Bob"]] = [florida, bob]
+			statesWithPeopleResults[["TX", "Milton"]] = [texas, milton]
+			statesWithPeopleResults[["TX", "Lumbergh"]] = [texas, lumbergh]
+			statesWithPeopleResults[["GA", undefined]] = [georgia, undefined]
+			statesWithPeopleResults[["NY", undefined]] = [newYork, undefined]
+			expect(statesWithPeople.getRows()).toEqual(statesWithPeopleResults)
 		})
 	})
 })
@@ -119,17 +137,25 @@ describe("Updates", function() {
 		it("counters", function() {
 			expect(peopleFromTexas()).toEqual(3)
 		})
-		it("joins", function() {
-			var join = {}
-			join[["Bob", "TX"]] = [bob2,texas]
-			join[["Milton", "TX"]] = [milton,texas]
-			join[["Lumbergh", "TX"]] = [lumbergh,texas]
-			expect(peopleWithStates.getRows()).toEqual(join)
-
-			join[[undefined, "GA"]] = [undefined,georgia]
-			join[[undefined, "NY"]] = [undefined,newYork]
-			join[[undefined, "FL"]] = [undefined,florida]
-			expect(peopleAndStates.getRows()).toEqual(join)
+		it("joins with required people", function() {
+			delete peopleWithStatesResults[["Bob", "FL"]]
+			peopleWithStatesResults[["Bob", "TX"]] = [bob2,texas]
+			expect(peopleWithStates.getRows()).toEqual(peopleWithStatesResults)			
+		})
+		it("joins with required people and states", function() {
+			expect(peopleAndStates.getRows()).toEqual(peopleWithStatesResults)
+		})
+		it("full joins", function() {
+			delete peopleOrStatesResults[["Bob","FL"]]
+			peopleOrStatesResults[[undefined, "FL"]] = [undefined,florida]
+			peopleOrStatesResults[["Bob","TX"]] = [bob2, texas]
+			expect(peopleOrStates.getRows()).toEqual(peopleOrStatesResults)
+		})
+		it("joins with required states", function() {
+			statesWithPeopleResults[["FL", undefined]] = [florida, undefined]
+			statesWithPeopleResults[["TX", "Bob"]] = [texas, bob2]
+			delete statesWithPeopleResults[["FL", "Bob"]]
+			expect(statesWithPeople.getRows()).toEqual(statesWithPeopleResults)
 		})
 	})
 })
@@ -142,15 +168,28 @@ describe("Removes", function() {
 	it("affect row counts", function() {
 		expect(people.getRowCount()).toEqual(2)
 	})
-	it("joins", function() {
-		var join = {}		
-		join[["Lumbergh", "TX"]] = [lumbergh,texas]				
+	var join = {}
+	it("joins with required people", function() {		
 		join[["Bob", "TX"]] = [bob2,texas]
-		expect(peopleWithStates.getRows()).toEqual(join)
-
-		join[[undefined, "FL"]] = [undefined,florida]
-		join[[undefined, "NY"]] = [undefined,newYork]
-		join[[undefined, "GA"]] = [undefined,georgia]
+		join[["Lumbergh", "TX"]] = [lumbergh,texas]
+		expect(peopleWithStates.getRows()).toEqual(join)			
+	})
+	it("joins with required people and states", function() {
 		expect(peopleAndStates.getRows()).toEqual(join)
+	})
+	it("joins with required people", function() {
+		delete peopleWithStatesResults[["Milton", "TX"]]
+		expect(peopleWithStates.getRows()).toEqual(peopleWithStatesResults)			
+	})
+	it("joins with required people and states", function() {
+		expect(peopleAndStates.getRows()).toEqual(peopleWithStatesResults)
+	})
+	it("full joins", function() {
+		delete peopleOrStatesResults[["Milton","TX"]]
+		expect(peopleOrStates.getRows()).toEqual(peopleOrStatesResults)
+	})
+	it("joins with required states", function() {
+		delete statesWithPeopleResults[["TX", "Milton"]]
+		expect(statesWithPeople.getRows()).toEqual(statesWithPeopleResults)
 	})
 })

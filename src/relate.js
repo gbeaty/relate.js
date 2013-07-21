@@ -170,7 +170,12 @@ Relate = function() {
 				}
 			}
 			self.removeIfExists = function(row) {
-				var key = keyGen(row)
+				return self.removeKeyIfExists(keyGen(row))
+			}
+			self.removeKey = function(key) {
+				self.remove(rows[key])
+			}
+			self.removeKeyIfExists = function(key) {
 				var row = rows[key]
 				if(key !== undefined && row !== undefined) {
 					delete rows[key]
@@ -179,9 +184,6 @@ Relate = function() {
 					return true
 				}
 				return false
-			}
-			self.removeKey = function(key) {
-				self.remove(rows[key])
 			}
 			self.pub.getRowCount = function() { return rowCount }
 
@@ -368,15 +370,23 @@ Relate = function() {
 
 		db.Aggregate = function(bases, initial, apply, unapply) {		
 			var total = initial
+			var self = noobj
+
+			var update = function(newTotal) {
+				total = newTotal
+				self.pub.forListeners(function(l) {
+					l.signalUpdate(total, newTotal)
+				})
+			}
 
 			var sourceInsert = function(table, row) {
-				total = apply(total, row, table)
+				update(apply(total, row, table))
 			}
 			var sourceUpdate = function(table, last, next) {
-				total = apply(unapply(total, last, table), next, table)
+				update(apply(unapply(total, last, table), next, table))
 			}
 			var sourceRemove = function(table, row) {
-				total = unapply(total, row, table)
+				update(unapply(total, row, table))
 			}
 
 			var self = derived(bases, undefined, sourceInsert, sourceUpdate, sourceRemove)
@@ -482,8 +492,7 @@ Relate = function() {
 				var key = []
 				var i = sources.length
 				while(--i >= 0) {
-					if(join[i] !== undefined)
-						key[i] = sources[i].keyGen(join[i])
+					key[i] = (join[i] !== undefined) ? sources[i].keyGen(join[i]) : undefined
 				}
 				return key
 			}
@@ -521,17 +530,18 @@ Relate = function() {
 			}
 			var sourceInsert = function(table, row) {
 				var joinOn = keyFor(table, row)
-
-				var rows = joinsFor(joinOn, table, undefined)
-				var i = rows.length
-				while(--i >= 0) {
-					self.removeIfExists(rows[i])
-				}
+				var sourceIndex = sources.indexOf(table)
 
 				rows = joinsFor(joinOn, table, row)
 				i = rows.length
-				while(--i >= 0) {
-					self.insert(rows[i])
+				while(--i >= 0) {					
+					var row = rows[i]
+
+					var key = keyGen(row)					
+					key[sourceIndex] = undefined
+					self.removeKeyIfExists(key)
+
+					self.insert(row)
 				}
 			}
 			var sourceUpdate = function(table, last, next) {
