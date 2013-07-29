@@ -16,6 +16,7 @@ Relate = function() {
 		}
 		return true
 	}
+	var scalarKeyGen = function(scalar) { return scalar.key }
 
 	var cartProd = function(paramArray) {
 		function addTo(curr, args) {
@@ -106,8 +107,8 @@ Relate = function() {
 				while(--l >= 0) {
 					self.listeners[l].drop()
 				}
-				self.listeners = null
-				self.addToListeners = null
+				delete self.listeners
+				delete self.addToListeners
 			}
 
 			var checkKeyGen = function(row) {
@@ -228,9 +229,6 @@ Relate = function() {
 		db.table = function(keyGen) {
 			var self = relation(keyGen ? keyGen : idGen)
 
-			self.sourceInsert = function(from, row) { self.insert(row) }
-			self.sourceUpdate = function(from, row) { self.update(row) }
-			self.sourceRemove = function(from, row) { self.remove(row) }
 			var change = function(rows, op) {
 				var i = rows.length
 				while(--i >= 0) {
@@ -578,7 +576,7 @@ Relate = function() {
 
 			self = derived(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove, arrayKeyCompare)
 			return self.pub
-		}
+		}		
 
 		return db
 	}
