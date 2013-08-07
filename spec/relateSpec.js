@@ -9,11 +9,11 @@ var time = function(its, f) {
 
 var keyMaker = function(r) { return r[0] }
 var db = Relate.db()
-var t1 = db.table(keyMaker)
-var t2 = db.table(keyMaker)
+var t1 = db.Table(keyMaker)
+var t2 = db.Table(keyMaker)
 
 var person = function(name, city, state, age) { return {name: name, city: city, state: state, age: age} }
-var people = db.table(function(p) {
+var people = db.Table(function(p) {
 	return p.name
 })
 var bob = person("Bob","Miami","FL", 40)
@@ -22,10 +22,10 @@ var lumbergh = person("Lumbergh","Dallas","TX", 50)
 var milton = person("Milton","Dallas","TX", 42)
 
 var city = function(name, state) { return {name: name, state: state} }
-var cities = db.table(function(c) { return c } )
+var cities = db.Table(function(c) { return c } )
 
 var state = function(name, abbriv) { return {name: name, abbriv: abbriv} }
-var states = db.table(function(s) { return s.abbriv} )
+var states = db.Table(function(s) { return s.abbriv} )
 var texas = state('Texas','TX')
 var florida = state('Florida','FL')
 var georgia = state('Georgia','GA')
@@ -50,6 +50,13 @@ var peopleOrStatesResults = {}
 var statesWithPeopleResults = {}
 var peopleWithStatesResults = {}
 
+var peopleKeyTrigger = people.keyTrigger()
+var bobState
+var setBobState = function(last, next) {
+	bobState = next.state
+}
+peopleKeyTrigger.listen("Bob", "Bob", setBobState)
+
 describe("Inserts", function() {
 	it("should insert rows", function() {
 		people.insert(peopleToInsert)
@@ -59,6 +66,9 @@ describe("Inserts", function() {
 		expect(function() { people.insert([bob]) }).toThrow(new Error("Primary key constraint violation for key: Bob"))
 	})
 	describe("should work with", function() {
+		it("key triggers", function() {
+			expect(bobState).toEqual("FL")
+		})
 		it("tables", function() {
 			expect(people.getRows()).toEqual({ Bob: bob, Lumbergh: lumbergh, Milton: milton })
 			expect(states.getRows()).toEqual({ TX: texas, FL: florida, GA: georgia, NY: newYork })
@@ -116,6 +126,9 @@ describe("Updates", function() {
 	describe("should work with", function() {
 		it("tables", function() {
 			expect(people.getRows()).toEqual({ Bob: bob2, Lumbergh: lumbergh, Milton: milton })
+		})
+		it("key triggers", function() {
+			expect(bobState).toEqual("TX")
 		})
 		it("not affect row counts", function() {
 			expect(people.getRowCount()).toEqual(3)
@@ -191,5 +204,27 @@ describe("Removes", function() {
 	it("joins with required states", function() {
 		delete statesWithPeopleResults[["TX", "Milton"]]
 		expect(statesWithPeople.getRows()).toEqual(statesWithPeopleResults)
+	})
+})
+
+var scalars = db.Scalars()
+var num
+describe("Scalars", function() {	
+	it("set", function() {
+		scalars.set("num", 5)
+		expect(scalars.get("num")).toEqual(5)
+	})
+	it("register listeners", function() {
+		scalars.listen("num", "num", function(n) { num = n })
+		expect(num).toEqual(5)
+	})
+	it("update", function() {
+		scalars.set("num", 10)
+		expect(scalars.get("num")).toEqual(10)
+		expect(num).toEqual(10)
+	})
+	it("clear", function() {
+		scalars.clear("num")
+		expect(scalars.clear("num")).toEqual(undefined)
 	})
 })

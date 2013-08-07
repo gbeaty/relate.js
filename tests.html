@@ -24,7 +24,7 @@
     var jasmineEnv = jasmine.getEnv();
     jasmineEnv.updateInterval = 1000;
 
-    var htmlReporter = new jasmine.HtmlReporter();
+    var htmlReporter = new jasmine.HtmlReporter(document.getElementById("tests"));
 
     jasmineEnv.addReporter(htmlReporter);
 
@@ -62,14 +62,15 @@
     var data
     $(function () {
       data = byAge.getData()
-      grid = new Slick.Grid("#peopleOrStatesGrid", data, columns, options);
-      grid.render()
+      /*grid = new Slick.Grid("#peopleOrStatesGrid", data, columns, options);
+      grid.render()*/
     })
   </script>
 
 </head>
 
 <body>
-  <div id="peopleOrStatesGrid" style="width:600px;height:500px;"></div>
+  <div id="tests"></div>
+  <!-- <div id="peopleOrStatesGrid" style="width:600px;height:500px;"></div> -->
 </body>
 </html>

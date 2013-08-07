@@ -80,15 +80,13 @@ Relate = function() {
 		var simpleRelation = function(keyGen, keyCompare) {
 			var self = {}
 			self.pub = broadcasts()
-			self.keyGen = keyGen		
+			self.keyGen = keyGen
 			var rows = self.rows = {}
 			var rowCount = 0
 
 			if(!keyCompare)
 				keyCompare = scalarKeyCompare
-
-			var dirty = false
-			self.dirty = function() { dirty = true }
+			self.keyCompare = keyCompare
 
 			self.get = function(key) { return self.rows[key] }
 
@@ -221,12 +219,18 @@ Relate = function() {
 			self.pub.sort = function(comparer) {
 				return sort(self, comparer)
 			}
+			self.pub.keyTrigger = function() {
+				return db.KeyTrigger(self)
+			}
+			self.pub.filter = function(f) {
+				return db.Filter(f)
+			}
 
 			relations.insert(self)
 			return self
 		}
 
-		db.table = function(keyGen) {
+		db.Table = function(keyGen) {
 			var self = relation(keyGen ? keyGen : idGen)
 
 			var change = function(rows, op) {
@@ -244,9 +248,7 @@ Relate = function() {
 			return self.pub
 		}
 
-		var derived = function(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove, keyCompare) {
-			var self = relation(keyGen, keyCompare)
-			var sup = {}
+		var derived = function(self, sources, sourceInsert, sourceUpdate, sourceRemove) {
 			var i = sources.length
 			while(--i >= 0) {
 				sources[i] = sources[i].pub ? sources[i] : relations.get(sources[i].id)
@@ -257,13 +259,17 @@ Relate = function() {
 			self.sourceUpdate = sourceUpdate ? sourceUpdate : noop
 			self.sourceRemove = sourceRemove ? sourceRemove : noop
 
-			sup.drop = self.pub.drop
+			var superDrop
+			if(self.pub.drop) {
+				superDrop = self.pub.drop
+			}
 			self.pub.drop = function() {
 				var p = sources.length
 				while(--p >= 0) {
 					sources[p].removeFromListeners(self)
 				}
-				sup.drop()
+				if(superDrop)
+					superDrop()
 			}
 
 			var p = sources.length
@@ -277,6 +283,80 @@ Relate = function() {
 			}
 
 			return self
+		}
+
+		var derivedRelation = function(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove, keyCompare) {
+			return derived(relation(keyGen, keyCompare), sources, sourceInsert, sourceUpdate, sourceRemove)
+		}
+
+		var triggerGrouper = function(row) {
+			return row.key
+		}
+		var triggerKeyGen = function(row) {
+			return [row.key, row.name]
+		}
+		db.KeyTrigger = function(base) {
+			var handlers = relation(triggerKeyGen, arrayKeyCompare)
+			var pub = {}
+			var keyGroups = group(handlers, triggerGrouper)
+
+			pub.listen = function(key, name, handler) {
+				handlers.insert({ key: key, name: name, handler: handler })
+				var row = base.get(key)
+				if(row !== undefined) {
+					handler(undefined, row, base)
+				}
+			}
+			pub.unlisten = function(key, name) {
+				handlers.removeKey([key, name])
+			}
+
+			var sourceChange = function(table, key, last, next) {
+				var rows = keyGroups.getGroup(key).pub.getRows()
+				for(k in rows) if(rows.hasOwnProperty(k)) {
+					rows[k].handler(last, next, table)
+				}
+			}
+			var sourceInsert = function(table, row) {
+				sourceChange(table, table.keyGen(row), undefined, row)
+			}
+			var sourceUpdate = function(table, last, next) {
+				var lastKey = table.keyGen(last)
+				var nextKey = table.keyGen(next)
+				if(table.keyCompare(lastKey, nextKey)) {
+					sourceChange(table, lastKey, last, next)
+				} else {
+					sourceChange(table, lastKey, last, undefined)
+					sourceChange(table, nextKey, undefined, next)
+				}
+			}
+			var sourceRemove = function(table, row) {
+				sourceChange(table, table.keyGen(row), row, undefined)
+			}
+
+			return derived({ pub: pub }, [base], sourceInsert, sourceUpdate, sourceRemove).pub
+		}
+		db.Scalars = function() {
+			var scalars = relation(scalarKeyGen)
+			var pub = db.KeyTrigger(scalars)
+			pub.set = function(key, value) {
+				scalars.upsert({key: key, value: value})
+			}
+			pub.clear = function(key) {
+				scalars.removeKeyIfExists(key)
+			}
+			pub.get = function(key) {
+				return scalars.get(key).value
+			}
+			var trigListen = pub.listen
+			pub.listen = function(key, name, handler) {
+				trigHandler = function(last, next, table) {
+					return handler(next ? next.value : undefined, last ? last.value : undefined)
+				}
+				trigListen(key, name, trigHandler)
+			}
+
+			return pub
 		}
 
 		db.Map = function(bases, mapper, keyGen) {		
@@ -308,11 +388,11 @@ Relate = function() {
 					self.remove(mapped)
 			}
 
-			var self = derived(bases, keyGen, sourceInsert, sourceUpdate, sourceRemove)
+			var self = derivedRelation(bases, keyGen, sourceInsert, sourceUpdate, sourceRemove)
 			return self.pub
 		}
 
-		var filter = function(base, filterer) {
+		db.Filter = function(base, filterer) {
 			return relate.Map([base], function(row, table) { return filterer(row, table) ? row : undefined }, base.keyGen)
 		}
 
@@ -323,7 +403,7 @@ Relate = function() {
 			var getGroup = function(gkey) {
 				var grp = groups[gkey]
 				if(grp === undefined) {
-					grp = derived([self], base.keyGen)
+					grp = derivedRelation([self], base.keyGen)
 					groups[gkey] = grp
 				}
 				return grp
@@ -336,7 +416,6 @@ Relate = function() {
 				var gkey = grouper(row, table)
 				getGroup(gkey).insert(row)
 				self.signalInsert(row)
-				self.dirty()
 			}
 			var sourceUpdate = function(table, last, next) {
 				lastKey = grouper(last, table)
@@ -349,17 +428,15 @@ Relate = function() {
 					getGroup(nextKey).insert(next)
 				}
 				self.signalUpdate(last, next)
-				self.dirty()
 			}
 			var sourceRemove = function(table, row) {
 				var gkey = grouper(row, table)
 				var grp = getGroup(gkey)
 				grp.remove(row)
 				self.signalRemove(row)
-				self.dirty()
 			}
 
-			self = derived([base], base.keyGen, sourceInsert, sourceUpdate, sourceRemove)
+			self = derivedRelation([base], base.keyGen, sourceInsert, sourceUpdate, sourceRemove)
 			self.pub.groupKeyGen = grouper
 			self.pub.getGroup = getGroup
 			self.pub.getGroupFor = getGroupFor
@@ -387,7 +464,7 @@ Relate = function() {
 				update(unapply(total, row, table))
 			}
 
-			var self = derived(bases, undefined, sourceInsert, sourceUpdate, sourceRemove)
+			var self = derivedRelation(bases, undefined, sourceInsert, sourceUpdate, sourceRemove)
 			return function() { return total }
 		}
 
@@ -472,7 +549,7 @@ Relate = function() {
 				removedIndices.push({ index: i, removed: 1 })
 			}
 
-			var self = derived([relation], relation.keyGen, sourceInsert, sourceUpdate, sourceRemove)
+			var self = derivedRelation([relation], relation.keyGen, sourceInsert, sourceUpdate, sourceRemove)
 			self.pub.getData = function() {
 				resort()
 				return data
@@ -574,7 +651,7 @@ Relate = function() {
 				}
 			}
 
-			self = derived(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove, arrayKeyCompare)
+			self = derivedRelation(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove, arrayKeyCompare)
 			return self.pub
 		}		
 
