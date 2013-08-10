@@ -55,9 +55,7 @@ var bobState
 var setBobState = function(last, next) {
 	bobState = next.state
 }
-var bobStateHtml = function() { return document.getElementById("bobState").innerHTML }
 peopleKeyTrigger.listen("Bob", "Bob", setBobState)
-peopleKeyTrigger.htmlListen("Bob", "bobState", function(v) { return v.state })
 
 describe("Inserts", function() {
 	it("should insert rows", function() {
@@ -70,9 +68,6 @@ describe("Inserts", function() {
 	describe("should work with", function() {
 		it("key triggers", function() {
 			expect(bobState).toEqual("FL")
-		})
-		it("html triggers", function() {
-			expect(bobStateHtml()).toEqual("FL")
 		})
 		it("tables", function() {
 			expect(people.getRows()).toEqual({ Bob: bob, Lumbergh: lumbergh, Milton: milton })
@@ -134,9 +129,6 @@ describe("Updates", function() {
 		})
 		it("key triggers", function() {
 			expect(bobState).toEqual("TX")
-		})
-		it("html triggers", function() {
-			expect(bobStateHtml()).toEqual("TX")
 		})
 		it("not affect row counts", function() {
 			expect(people.getRowCount()).toEqual(3)

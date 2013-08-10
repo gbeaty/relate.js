@@ -310,21 +310,6 @@ var factory = function() {
 			pub.unlisten = function(key, name) {
 				handlers.removeKey([key, name])
 			}
-			pub.htmlListen = function(key, elId, formatter) {
-				var element = document.getElementById(elId)
-				
-				if(!formatter)
-					formatter = function(value) { return value.toString() }
-
-				var handler = function(last, next, table) {
-					if(!element)
-						element = document.getElementById(elId)
-
-					if(element)
-						element.innerHTML = formatter(next)
-				}
-				pub.listen(key, elId, handler)
-			}
 
 			var sourceChange = function(table, key, last, next) {
 				var rows = keyGroups.getGroup(key).pub.getRows()
