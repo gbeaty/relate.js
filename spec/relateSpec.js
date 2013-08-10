@@ -190,11 +190,8 @@ describe("Removes", function() {
 	it("joins with required people and states", function() {
 		expect(peopleAndStates.getRows()).toEqual(join)
 	})
-	it("joins with required people", function() {
-		delete peopleWithStatesResults[["Milton", "TX"]]
-		expect(peopleWithStates.getRows()).toEqual(peopleWithStatesResults)			
-	})
 	it("joins with required people and states", function() {
+		delete peopleWithStatesResults[["Milton", "TX"]]
 		expect(peopleAndStates.getRows()).toEqual(peopleWithStatesResults)
 	})
 	it("full joins", function() {
@@ -234,5 +231,19 @@ describe("Clears", function() {
 	it("should erase all rows", function() {
 		people.clear()
 		expect(people.getRows()).toEqual({})
+	})
+	var join = {}
+	it("joins with required people", function() {
+		expect(peopleWithStates.getRows()).toEqual({})			
+	})
+	it("joins with required people and states", function() {
+		expect(peopleAndStates.getRows()).toEqual({})
+	})
+	it("full joins", function() {
+		join[[undefined,"TX"]] = [undefined, texas]
+		join[[undefined,"FL"]] = [undefined, florida]
+		join[[undefined,"GA"]] = [undefined, georgia]
+		join[[undefined,"NY"]] = [undefined, newYork]
+		expect(peopleOrStates.getRows()).toEqual(join)
 	})
 })
