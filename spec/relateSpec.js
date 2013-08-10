@@ -53,7 +53,7 @@ var peopleWithStatesResults = {}
 var peopleKeyTrigger = people.keyTrigger()
 var bobState
 var setBobState = function(last, next) {
-	bobState = next.state
+	bobState = next ? next.state : undefined
 }
 peopleKeyTrigger.listen("Bob", "Bob", setBobState)
 
@@ -227,5 +227,12 @@ describe("Scalars", function() {
 		scalars.clear("num")
 		expect(scalars.clear("num")).toEqual(undefined)
 		expect(num).toEqual(undefined)
+	})
+})
+
+describe("Clears", function() {
+	it("should erase all rows", function() {
+		people.clear()
+		expect(people.getRows()).toEqual({})
 	})
 })

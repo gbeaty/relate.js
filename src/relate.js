@@ -243,6 +243,11 @@ var factory = function() {
 			self.pub.remove = function(keys) { change(keys, self.removeKey) }
 			self.pub.update = function(rows) { change(rows, self.update)    }
 			self.pub.upsert = function(rows) { change(rows, self.upsert)    }
+			self.pub.clear  = function() {
+				for(k in self.rows) if(self.rows.hasOwnProperty(k)) {
+					self.removeKey(k)
+				}
+			}
 
 			tables.insert(self)
 			return self.pub
