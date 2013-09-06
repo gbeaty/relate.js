@@ -36,7 +36,9 @@ var peopleToUpdate = [bob2]
 var statesToInsert = [texas, florida, georgia, newYork]
 var peopleFormatter = function(p) { return { name: p.name, value: p.name + " from " + p.city + ", " + p.state } }
 var formattedPeople = people.map(peopleFormatter)
-var byAge = people.sort(function(a,b) { return a.age - b.age })
+var byAge = people.sort(function(a,b) {
+	return a.age - b.age
+})
 var stateGroup = people.group(function(p) { return p.state })
 var peopleFromTexas = people.count(function(row) {
 	return row.state === "TX"

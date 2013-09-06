@@ -38,19 +38,19 @@ var factory = function() {
 
 	var broadcasts = function() {
 		var self = {}
-		var listeners = []
+		self.listeners = []
 
 		self.addToListeners = function(rel) {
-			if(listeners.indexOf(rel) === -1)
-				listeners.push(rel)
+			if(self.listeners.indexOf(rel) === -1)
+				self.listeners.push(rel)
 		}
 		self.removeFromListeners = function(rel) {
-			listeners = listeners.filter(function(r) { return r !== rel })
+			self.listeners = self.listeners.filter(function(r) { return r !== rel })
 		}
 		self.forListeners = function(op) {
-			var i = listeners.length
+			var i = self.listeners.length
 			while(--i >= 0) {				
-				op(listeners[i])
+				op(self.listeners[i])
 			}
 		}
 
@@ -83,6 +83,7 @@ var factory = function() {
 			self.keyGen = keyGen
 			var rows = self.rows = {}
 			var rowCount = 0
+			var listeners = self.pub.listeners
 
 			if(!keyCompare)
 				keyCompare = scalarKeyCompare
@@ -490,75 +491,49 @@ var factory = function() {
 			return db.Sum(bases, count)
 		}
 
-		var sort = function(relation, comparer) {		
-			var needsResort = false
+		var sort = function(relation, comparer) {
 			var data = []
-			var indices = {}
-			var removedIndices = []
-			var keyGen = relation.keyGen
-
+			var indexSearch = function(row, start, end) {
+				var length = end - start + 1
+				var at = start + Math.floor(length / 2)
+				if(length <= 0) {
+					return at
+				}
+				var result = comparer(row, data[at])
+				if(result === 0) {
+					return at
+				}
+				else if(result < 0) {
+					return indexSearch(row, start, at - 1)
+				} else {
+					return indexSearch(row, at + 1, end)
+				}
+			}
 			var indexOf = function(row) {
-				var key = keyGen(row)
-				var index = indices[key]
-				var i = removedIndices.length
-				while(--i >= 0) {
-					var ri = removedIndices[i]
-					if(index >= ri.index) {
-						index -= ri.removed
-					}
-				}
-				return index
+				return indexSearch(row, 0, data.length - 1)
 			}
-
-			var resort = function() {
-				if(needsResort) {
-					data.sort(comparer)
-					
-					indices = {}
-					removedIndices = []
-					var i = data.length
-					while(--i >= 0) {
-						var row = data[i]
-						indices[keyGen(row)] = i
-					}
-
-					needsResort = false
-				}
-			}
-
-			var flagResort = function(index) {
-				var prev = data[index-1]
-				var row = data[index]
-				var next = data[index+1]
-				var result = (prev !== undefined && comparer(prev, row) >= 0) || (next !== undefined && comparer(row, next) >= 0)
-				if(result) {
-					needsResort = true
-				}
-				return result
-			}
-
 			var sourceInsert = function(table, row) {
-				var index = data.length
-				data.push(row)
-				indices[keyGen(row)] = index
-				flagResort(index)
-			}
-			var sourceUpdate = function(table, last, next) {
-				var index = indexOf(last)
-				data[index] = next
-				flagResort(index)
+				data.splice(indexOf(row), 0, row)
 			}
 			var sourceRemove = function(table, row) {
-				var i = indexOf(row)
-				data.splice(i,1)
-				removedIndices.push({ index: i, removed: 1 })
+				data.splice(indexOf(row), 1)
+			}
+			var sourceUpdate = function(table, last, next) {
+				var lastIndex = indexOf(last)
+				if(comparer(last, next) === 0) {
+					data[lastIndex] = next
+				} else {
+					data.splice(lastIndex, 1)
+					data.splice(indexOf(next), 0, next)
+				}
 			}
 
 			var self = derivedRelation([relation], relation.keyGen, sourceInsert, sourceUpdate, sourceRemove)
+
 			self.pub.getData = function() {
-				resort()
 				return data
 			}
+
 			return self.pub
 		}
 

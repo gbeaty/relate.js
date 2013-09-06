@@ -41,15 +41,15 @@ var result = time(
 		table2.upsert(rows2)
 	},
 	function() {
-		table = db.table(pkgen)
-		table2 = db.table(pkgen)
-		join = table.join(table2)
+		table = db.Table(pkgen)
+		table2 = db.Table(pkgen)
+		// join = table.join(table2)
 		ids = table.map(function(r) { return [r[0],r[1]] })
 		bySecond = table.sort(function(a,b) { return a[1] - b[1] })
 		bySecond.getData()
 	},
 	function() {
-		console.log(join.get([1,1]))
+		// console.log(join.get([1,1]))
 	},
 	num
 )
