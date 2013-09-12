@@ -17,6 +17,7 @@ var factory = function() {
 		return true
 	}
 	var scalarKeyGen = function(scalar) { return scalar.key }
+	var zero = function() { return 0 }
 
 	var cartProd = function(paramArray) {
 		function addTo(curr, args) {
@@ -54,6 +55,14 @@ var factory = function() {
 			}
 		}
 
+		return self
+	}
+
+	relate.listener = function(insert, update, remove, self) {
+		self = self ? self : {}
+		self.sourceInsert = insert ? insert : noop
+		self.sourceUpdate = update ? update : noop
+		self.sourceRemove = remove ? remove : noop
 		return self
 	}
 
@@ -261,9 +270,7 @@ var factory = function() {
 			}
 			self.sources = sources
 
-			self.sourceInsert = sourceInsert ? sourceInsert : noop
-			self.sourceUpdate = sourceUpdate ? sourceUpdate : noop
-			self.sourceRemove = sourceRemove ? sourceRemove : noop
+			relate.listener(sourceInsert, sourceUpdate, sourceRemove, self)
 
 			var superDrop
 			if(self.pub.drop) {
@@ -493,6 +500,11 @@ var factory = function() {
 
 		var sort = function(relation, comparer) {
 			var data = []
+			var indices = {}
+			comparer = comparer ? comparer : zero
+			var setIndex = function(index) {
+				indices[relation.keyGen(data[index])] = index
+			}
 			var indexSearch = function(row, start, end) {
 				var length = end - start + 1
 				var at = start + Math.floor(length / 2)
@@ -509,29 +521,67 @@ var factory = function() {
 					return indexSearch(row, at + 1, end)
 				}
 			}
-			var indexOf = function(row) {
+			var insertIndex = function(row) {
 				return indexSearch(row, 0, data.length - 1)
 			}
+			var indexOf = function(row) {
+				return indices[relation.keyGen(row)]
+			}
 			var sourceInsert = function(table, row) {
-				data.splice(indexOf(row), 0, row)
+				var index = insertIndex(row)
+				data.splice(index, 0, row)
+
+				var i = data.length
+				while(--i >= index) {
+					setIndex(i)
+				}
+
+				self.signalInsert(data[i])
+				i = data.length - 1
+				while(--i >= index) {
+					self.signalUpdate(data[i+1], data[i])
+				}
 			}
 			var sourceRemove = function(table, row) {
-				data.splice(indexOf(row), 1)
+				var index = indexOf(row)
+				data.splice(index, 1)
+				delete indices[index]
+				self.signalRemove(row)
+
+				var i = data.length
+				while(--i >= index) {
+					self.signalUpdate(data[i], data[i-1])
+				}
 			}
 			var sourceUpdate = function(table, last, next) {
 				var lastIndex = indexOf(last)
 				if(comparer(last, next) === 0) {
 					data[lastIndex] = next
-				} else {
+				} else {					
 					data.splice(lastIndex, 1)
-					data.splice(indexOf(next), 0, next)
+					var nextIndex = insertIndex(next)
+					data.splice(nextIndex, 0, next)
+					setIndex(nextIndex)
 				}
+				self.signalUpdate(last, next)
 			}
 
 			var self = derivedRelation([relation], relation.keyGen, sourceInsert, sourceUpdate, sourceRemove)
 
+			self.pub.indexOf = indexOf
 			self.pub.getData = function() {
 				return data
+			}
+			self.pub.resort = function(newComparer) {
+				var newData = data.slice(0)
+				newData.sort(newComparer)
+				var i = data.length
+				while(--i >= 0) {
+					if(data[i] !== newData[i]) {
+						self.signalUpdate(data[i], newData[i])
+					}
+				}
+				data = newData
 			}
 
 			return self.pub

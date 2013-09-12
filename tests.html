@@ -9,6 +9,7 @@
   <script type="text/javascript" src="lib/jasmine-1.3.1/jasmine.js"></script>
   <script type="text/javascript" src="lib/jasmine-1.3.1/jasmine-html.js"></script>
   <script type="text/javascript" src="src/relate.js"></script>
+  <script type="text/javascript" src="src/relate.slick.grid.js"></script>
   <script type="text/javascript" src="spec/underscore.js"></script>
   <script type="text/javascript" src="spec/relateSpec.js"></script>
 
@@ -24,7 +25,7 @@
     var jasmineEnv = jasmine.getEnv();
     jasmineEnv.updateInterval = 1000;
 
-    var htmlReporter = new jasmine.HtmlReporter(document.getElementById("tests"));
+    var htmlReporter = new jasmine.HtmlReporter();
 
     jasmineEnv.addReporter(htmlReporter);
 
@@ -49,9 +50,7 @@
     var grid;
     var columns = [
       {id: "name", name: "Name", field: "name"},
-      {id: "city", name: "City", field: "city"},
-      {id: "state", name: "State", field: "state"},
-      {id: "age", name: "Age", field: "age"}
+      {id: "abbriv", name: "Postal code", field: "abbriv"}
     ];
 
     var options = {
@@ -59,11 +58,9 @@
       enableColumnReorder: false
     };
 
-    var data
+    var sortedStates = states.sort()
     $(function () {
-      data = byAge.getData()
-      /*grid = new Slick.Grid("#peopleOrStatesGrid", data, columns, options);
-      grid.render()*/
+      grid = Relate.SlickGrid.create(document.getElementById('states'), sortedStates, columns, options)
     })
   </script>
 
@@ -71,6 +68,6 @@
 
 <body>
   <div id="tests"></div>
-  <!-- <div id="peopleOrStatesGrid" style="width:600px;height:500px;"></div> -->
+  <div id="states" style="width:600px;height:200px;"></div>
 </body>
 </html>
