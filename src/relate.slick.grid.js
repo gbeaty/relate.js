@@ -10,7 +10,6 @@ Relate.SlickGrid = function() {
 		}
 		var updated = function(table, last, next) {
 			var i = sorted.indexOf(next)
-			console.log(i + " = " + sorted.getData()[i].name)
 			grid.invalidateRow(i)
 			grid.render()
 		}
@@ -24,7 +23,6 @@ Relate.SlickGrid = function() {
 		listener.grid = grid
 		listener.getLength = function() { return sorted.getData().length }
 		listener.getItem = function(i) {
-			console.log("data[" + i + "]: " + sorted.getData()[i].name)
 			return sorted.getData()[i]
 		}
 		listener.pause = function() {
