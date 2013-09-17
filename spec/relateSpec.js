@@ -249,3 +249,23 @@ describe("Clears", function() {
 		expect(peopleOrStates.getRows()).toEqual(join)
 	})
 })
+
+describe("Sorts", function() {
+	var nums = db.Table(function(num) { return num })
+	var comparer = function(a,b) { return a -b }
+	var sortedNums = nums.sort(comparer)
+	var ns = [5,8,3,1,2,7,6,4]
+	ns.sort(comparer)
+	nums.insert(ns)
+	it("should sort numbers", function() {
+		expect(sortedNums.getData()).toEqual(ns)
+	})
+	it("should reverse", function() {
+		sortedNums.reverse()
+		ns.reverse()
+		expect(sortedNums.getData()).toEqual(ns)
+		sortedNums.reverse()
+		ns.reverse()
+		expect(sortedNums.getData()).toEqual(ns)
+	})
+})

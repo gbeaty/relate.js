@@ -582,6 +582,25 @@ var factory = function() {
 					}
 				}
 				data = newData
+				comparer = newComparer
+			}
+			self.pub.reverse = function() {
+				data.reverse()
+
+				var i = data.length
+				while(--i >= 0) {
+					self.signalUpdate(data[data.length - i], data[i])
+				}
+
+				if(comparer.original) {
+					comparer = comparer.original
+				} else {
+					var original = comparer
+					comparer = function(a,b) {
+						return original(b,a)
+					}
+					comparer.original = original
+				}
 			}
 
 			return self.pub
