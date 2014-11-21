@@ -36,10 +36,12 @@ var peopleToUpdate = [bob2]
 var statesToInsert = [texas, florida, georgia, newYork]
 var peopleFormatter = function(p) { return { name: p.name, value: p.name + " from " + p.city + ", " + p.state } }
 var formattedPeople = people.map(peopleFormatter)
+var orderedPeople = people.order()
 var byAge = people.sort(function(a,b) {
 	return a.age - b.age
 })
 var stateGroup = people.group(function(p) { return p.state })
+var orderedStates = states.order()
 var peopleFromTexas = people.count(function(row) {
 	return row.state === "TX"
 })
@@ -87,6 +89,10 @@ describe("Inserts", function() {
 		})
 		it("sorts", function() {
 			expect(byAge.getData()).toEqual([bob,milton,lumbergh])
+		})
+		it("orders", function() {
+			expect(orderedPeople.toArray()).toEqual(peopleToInsert)
+			// expect(formattedPeople.order().toArray()).toEqual("blah")
 		})
 		it("groups", function() {
 			expect(stateGroup.getGroup("TX").rows).toEqual({ Lumbergh: lumbergh, Milton: milton })
@@ -145,6 +151,9 @@ describe("Updates", function() {
 		it("sorts", function() {
 			expect(byAge.getData()).toEqual([milton,bob2,lumbergh])
 		})
+		it("orders", function() {
+			expect(orderedPeople.toArray()).toEqual([bob2, lumbergh, milton])
+		})
 		it("groups", function() {
 			expect(stateGroup.getGroup("TX").rows).toEqual({ Bob: bob2, Lumbergh: lumbergh, Milton: milton })
 			expect(stateGroup.getGroup("FL").rows).toEqual({})
@@ -176,34 +185,39 @@ describe("Updates", function() {
 })
 
 describe("Removes", function() {
-	it("should work", function() {
+	it("should remove rows", function() {
 		people.remove(["Milton"])
 		expect(people.getRows()).toEqual({ Bob: bob2, Lumbergh: lumbergh })
 	})
 	it("affect row counts", function() {
 		expect(people.getRowCount()).toEqual(2)
 	})
-	var join = {}
-	it("joins with required people", function() {		
-		join[["Bob", "TX"]] = [bob2,texas]
-		join[["Lumbergh", "TX"]] = [lumbergh,texas]
-		expect(peopleWithStates.getRows()).toEqual(join)			
-	})
-	it("joins with required people and states", function() {
-		expect(peopleAndStates.getRows()).toEqual(join)
-	})
-	it("joins with required people and states", function() {
-		delete peopleWithStatesResults[["Milton", "TX"]]
-		expect(peopleAndStates.getRows()).toEqual(peopleWithStatesResults)
-	})
-	it("full joins", function() {
-		delete peopleOrStatesResults[["Milton","TX"]]
-		expect(peopleOrStates.getRows()).toEqual(peopleOrStatesResults)
-	})
-	it("joins with required states", function() {
-		delete statesWithPeopleResults[["TX", "Milton"]]
-		expect(statesWithPeople.getRows()).toEqual(statesWithPeopleResults)
-	})
+	describe("should work with", function() {
+		it("orders", function() {
+			expect(orderedPeople.toArray()).toEqual([bob2, lumbergh])
+		})
+		var join = {}
+		it("joins with required people", function() {		
+			join[["Bob", "TX"]] = [bob2,texas]
+			join[["Lumbergh", "TX"]] = [lumbergh,texas]
+			expect(peopleWithStates.getRows()).toEqual(join)			
+		})
+		it("joins with required people and states", function() {
+			expect(peopleAndStates.getRows()).toEqual(join)
+		})
+		it("joins with required people and states", function() {
+			delete peopleWithStatesResults[["Milton", "TX"]]
+			expect(peopleAndStates.getRows()).toEqual(peopleWithStatesResults)
+		})
+		it("full joins", function() {
+			delete peopleOrStatesResults[["Milton","TX"]]
+			expect(peopleOrStates.getRows()).toEqual(peopleOrStatesResults)
+		})
+		it("joins with required states", function() {
+			delete statesWithPeopleResults[["TX", "Milton"]]
+			expect(statesWithPeople.getRows()).toEqual(statesWithPeopleResults)
+		})
+	})	
 })
 
 var scalars = db.Scalars()
@@ -252,7 +266,7 @@ describe("Clears", function() {
 
 describe("Sorts", function() {
 	var nums = db.Table(function(num) { return num })
-	var comparer = function(a,b) { return a -b }
+	var comparer = function(a,b) { return a - b }
 	var sortedNums = nums.sort(comparer)
 	var ns = [5,8,3,1,2,7,6,4]
 	ns.sort(comparer)
@@ -267,5 +281,39 @@ describe("Sorts", function() {
 		sortedNums.reverse()
 		ns.reverse()
 		expect(sortedNums.getData()).toEqual(ns)
+	})
+})
+
+describe("Orders", function() {
+	it("should default to as-inserted order", function() {
+		expect(orderedStates.toArray()).toEqual([texas, florida, georgia, newYork])
+	})
+	it("should swap", function() {
+		orderedStates.swap(texas, florida)
+		expect(orderedStates.toArray()).toEqual([florida, texas, georgia, newYork])
+		orderedStates.swap(georgia, newYork)
+		expect(orderedStates.toArray()).toEqual([florida, texas, newYork, georgia])
+		orderedStates.swap(texas, newYork)
+		expect(orderedStates.toArray()).toEqual([florida, newYork, texas, georgia])
+		orderedStates.swap(georgia, florida)
+		expect(orderedStates.toArray()).toEqual([georgia, newYork, texas, florida])
+	})
+	it("should move to tail", function() {
+		orderedStates.move(florida, undefined)
+		expect(orderedStates.toArray()).toEqual([georgia, newYork, texas, florida])
+		orderedStates.move(newYork, undefined)
+		expect(orderedStates.toArray()).toEqual([georgia, texas, florida, newYork])
+	})
+	it("should move head to tail", function() {
+		orderedStates.move(georgia, undefined)
+		expect(orderedStates.toArray()).toEqual([texas, florida, newYork, georgia])
+	})
+	it("should move to itself", function() {
+		orderedStates.move(texas, texas)
+		expect(orderedStates.toArray()).toEqual([texas, florida, newYork, georgia])
+	})
+	it("should move to head", function() {
+		orderedStates.move(florida, texas)
+		expect(orderedStates.toArray()).toEqual([florida, texas, newYork, georgia])
 	})
 })

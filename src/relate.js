@@ -102,7 +102,7 @@ var factory = function() {
 
 			self.pub.getRows = function() { return rows }
 			self.pub.get = function(key) { return rows[key] }
-			self.toArray = function() {
+			self.pub.toArray = function() {
 				var result = []
 				for(k in rows) if(rows.hasOwnProperty(k)) {
 					result.push(rows[k])
@@ -229,6 +229,9 @@ var factory = function() {
 			self.pub.sort = function(comparer) {
 				return sort(self, comparer)
 			}
+			self.pub.order = function() {
+				return order(self)
+			}
 			self.pub.keyTrigger = function() {
 				return db.KeyTrigger(self)
 			}
@@ -244,10 +247,10 @@ var factory = function() {
 			var self = relation(keyGen ? keyGen : idGen)
 
 			var change = function(rows, op) {
-				var i = rows.length
-				while(--i >= 0) {
+				/*for(var i = 0; var len = rows.length; i < len; i++) {
 					op(rows[i])
-				}
+				}*/
+				rows.forEach(op)
 			}
 			self.pub.insert = function(rows) { change(rows, self.insert)    }
 			self.pub.remove = function(keys) { change(keys, self.removeKey) }
@@ -606,6 +609,114 @@ var factory = function() {
 			return self.pub
 		}
 
+		var order = function(base) {
+			var head = undefined
+			var tail = head
+			var orders = {}
+
+			var sourceInsert = function(table, sourceRow) {
+				row = {row: sourceRow, succ: undefined}
+				if(head === undefined) {
+					row.pred = undefined
+					head = row					
+				} else {
+					row.pred = tail
+					tail.succ = row
+				}
+				tail = row
+				orders[table.keyGen(sourceRow)] = row
+
+				self.signalInsert(tail)
+			}
+			var sourceUpdate = function(table, sourceLast, sourceNext) {
+				var last = orders[table.keyGen(sourceLast)]
+				var next = { pred: last.pred, row: sourceNext, succ: last.succ }
+				self.signalUpdate(last, next)
+				last.row = sourceNext
+			}
+			var remove = function(pos) {
+				if(pos === head) {
+					head = pos.succ
+				} else {
+					pos.pred.succ = pos.succ
+				}
+				if(pos === tail) {
+					tail = pos.pred
+				} else {
+					pos.succ.pred = pos.pred
+				}
+			}
+			var sourceRemove = function(table, row) {
+				var key = table.keyGen(row)
+				row = orders[key]
+				remove(row)
+				delete orders[key]
+				self.signalRemove(row)
+			}
+
+			var self = derivedRelation([base], base.keyGen, sourceInsert, sourceUpdate, sourceRemove, base.keyCompare)
+
+			var bound = function(i) {
+				return (i < 0) ? 0 : ((i >= orders.length) ? orders.length - 1 : i)
+			}
+			var order = function(row) {
+				return (row === undefined) ? undefined : orders[base.keyGen(row)]
+			}
+			self.pub.swap = function(a, b) {
+				var oa = order(a)
+				var ob = order(b)
+				if(oa !== undefined && ob !== undefined) {
+					oa.row = b
+					ob.row = a
+					orders[base.keyGen(a)] = ob
+					orders[base.keyGen(b)] = oa
+					self.signalUpdate(oa)
+					self.signalUpdate(ob)
+				}
+			}			
+			var setPos = function(pos, at) {
+				var pred = (at === undefined) ? tail : at.pred
+				var succ = at
+
+				pos.pred = pred
+				pos.succ = succ
+
+				if(pred !== undefined) {
+					pred.succ = pos
+				} else {
+					head = pos
+				}
+				if(succ !== undefined) {
+					succ.pred = pos
+				} else {
+					tail = pos
+				}
+			}
+			self.pub.move = function(from, to) {
+				if(from === to) return;
+				
+				var fromKey = base.keyGen(from)
+				var fromOrder = order(from)
+				var toOrder = order(to)
+
+				if(fromOrder === undefined) return;
+				
+				remove(fromOrder)
+				setPos(fromOrder, toOrder)
+			}
+			self.pub.toArray = function() {
+				var i = head
+				var res = []
+				while(i !== undefined) {
+					res[res.length] = i.row
+					i = i.succ
+				}
+				return res
+			}
+
+			return self.pub
+		}
+
 		db.Join = function(sources, required) {
 			var self = noobj
 
@@ -623,7 +734,7 @@ var factory = function() {
 
 			var rowsFor = function(table, joinOn) {
 				if(table.pub.getGroupFor)
-					return table.pub.getGroup(joinOn).toArray()
+					return table.pub.getGroup(joinOn).pub.toArray()
 					else {
 						var row = table.rows[joinOn]
 						return (row !== undefined) ? [row] : []

@@ -25,7 +25,7 @@ var row = function(pk) { return [pk,rand(),rand(),rand(),rand(),rand(),rand(),ra
 var sorter = function(a,b) { return a[1] - b[1] }
 
 var table, table2, join, ids, bySecond
-var num = 5000
+var num = 10000
 
 var rows = [], rows2 = []
 for(var i=0; i<num; i++) {
