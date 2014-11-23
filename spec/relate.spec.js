@@ -317,3 +317,11 @@ describe("Orders", function() {
 		expect(orderedStates.toArray()).toEqual([florida, texas, newYork, georgia])
 	})
 })
+
+describe("simpleRelation", function() {
+	it("forEach should work", function() {
+		var statesString = ""
+		states.forEach(function(s) { statesString = statesString + s.abbriv + " " } )
+		expect(statesString).toEqual("TX FL GA NY ")
+	})
+})

@@ -109,6 +109,11 @@ var factory = function() {
 				}
 				return result
 			}
+			self.pub.forEach = function(f) {
+				for(k in rows) if(rows.hasOwnProperty(k)) {
+					f(rows[k])
+				}
+			}
 
 			self.pub.drop = function() {
 				var l = self.listeners.length				
