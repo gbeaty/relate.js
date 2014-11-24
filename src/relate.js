@@ -1,6 +1,6 @@
 var factory = function() {
 	var relate = {}
-
+	var lastId = 0
 	var identity = function(a) { return a }
 	var noop = function() {}
 	var noobj = {}
@@ -41,11 +41,11 @@ var factory = function() {
 		var self = {}
 		self.listeners = []
 
-		self.addToListeners = function(rel) {
+		self.broadcastTo = function(rel) {
 			if(self.listeners.indexOf(rel) === -1)
 				self.listeners.push(rel)
 		}
-		self.removeFromListeners = function(rel) {
+		self.stopBroadcastingTo = function(rel) {
 			self.listeners = self.listeners.filter(function(r) { return r !== rel })
 		}
 		self.forListeners = function(op) {
@@ -66,762 +66,738 @@ var factory = function() {
 		return self
 	}
 
-	relate.db = function() {
-		var db = {}
-		var lastId = 0
-		var inTransaction = false
+	var simpleRelation = function(keyGen, keyCompare) {
+		var self = {}
+		self.pub = broadcasts()
+		self.keyGen = keyGen
+		self.pub.keyGen = keyGen
+		var rows = self.rows = {}
+		var rowCount = 0
+		var listeners = self.pub.listeners
 
-		db.transaction = function(trans) {
-			var result = null
-			inTransaction = true
-			try {
-				trans()
-			} catch(err) {
-				result = err
-				forTables(function(t) {
+		if(!keyCompare)
+			keyCompare = scalarKeyCompare
+		self.keyCompare = keyCompare
 
-				})
+		self.get = function(key) { return self.rows[key] }
+
+		self.pub.getRows = function() { return rows }
+		self.pub.get = function(key) { return rows[key] }
+		self.pub.toArray = function() {
+			var result = []
+			for(k in rows) if(rows.hasOwnProperty(k)) {
+				result.push(rows[k])
 			}
-			inTransaction = false
 			return result
 		}
-
-		var simpleRelation = function(keyGen, keyCompare) {
-			var self = {}
-			self.pub = broadcasts()
-			self.keyGen = keyGen
-			var rows = self.rows = {}
-			var rowCount = 0
-			var listeners = self.pub.listeners
-
-			if(!keyCompare)
-				keyCompare = scalarKeyCompare
-			self.keyCompare = keyCompare
-
-			self.get = function(key) { return self.rows[key] }
-
-			self.pub.getRows = function() { return rows }
-			self.pub.get = function(key) { return rows[key] }
-			self.pub.toArray = function() {
-				var result = []
-				for(k in rows) if(rows.hasOwnProperty(k)) {
-					result.push(rows[k])
-				}
-				return result
-			}
-			self.pub.forEach = function(f) {
-				for(k in rows) if(rows.hasOwnProperty(k)) {
-					f(rows[k])
-				}
-			}
-
-			self.pub.drop = function() {
-				var l = self.listeners.length				
-				while(--l >= 0) {
-					self.listeners[l].drop()
-				}
-				delete self.listeners
-				delete self.addToListeners
-			}
-
-			var checkKeyGen = function(row) {
-				var key = keyGen(row)
-				if(key === undefined || key === null)
-					throw "Cannot generate key for row: " + row;
-				return key
-			}
-
-			self.signalInsert = function(row) {
-				self.pub.forListeners(function(l) { l.sourceInsert(self, row) })
-			}
-			self.signalUpdate = function(last, next) {
-				self.pub.forListeners(function(l) { l.sourceUpdate(self, last, next) })
-			}
-			self.signalRemove = function(row) {
-				self.pub.forListeners(function(l) { l.sourceRemove(self, row) })
-			}
-
-			self.insert = function(row) {
-				if(!self.insertIfNotExists(row))
-					throw "Primary key constraint violation for key: " + keyGen(row)
-			}
-			self.insertIfNotExists = function(row) {
-				var key = checkKeyGen(row)
-				if(rows[key] === undefined) {
-					rows[key] = row
-					rowCount++
-					self.signalInsert(row)
-					return true
-				}
-				return false
-			}
-			self.updateForKeys = function(last, next, lastKey, nextKey) {
-				if(!keyCompare(lastKey, nextKey)) {
-					self.remove(last)
-					self.insert(next)
-				} else {					
-					rows[nextKey] = next
-					self.signalUpdate(last, next)
-				}
-			}
-			self.upsert = function(row) {
-				var key = checkKeyGen(row)
-				if(key !== undefined) {
-					var existing = rows[key]
-					if(existing === undefined) {
-						self.insert(row)
-					} else {
-						self.updateForKeys(existing, row, keyGen(existing), key)
-					}
-				}
-			}
-			self.update = function(last, next) {
-				self.updateForKeys(last, next, checkKeyGen(last), checkKeyGen(next))
-			}
-			self.remove = function(row) {
-				if(!self.removeIfExists(row)) {
-					throw "Tried to remove a non-existent row with key: " + keyGen(row);
-				}
-			}
-			self.removeIfExists = function(row) {
-				return self.removeKeyIfExists(keyGen(row))
-			}
-			self.removeKey = function(key) {
-				self.remove(rows[key])
-			}
-			self.removeKeyIfExists = function(key) {
-				var row = rows[key]
-				if(key !== undefined && row !== undefined) {
-					delete rows[key]
-					rowCount--
-					self.signalRemove(row)
-					return true
-				}
-				return false
-			}
-			self.pub.getRowCount = function() { return rowCount }
-
-			return self
-		}
-
-		var relationKeyGen = function(rel) { return rel.pub.id }
-		var relations = simpleRelation(relationKeyGen)
-		var tables = simpleRelation(relationKeyGen)
-		var forTables = function(op) {
-			var ts = tables.getRows()
-			for(k in ts) if(ts.hasOwnProperty(k)) {
-				op(ts[k])
+		self.pub.forEach = function(f) {
+			for(k in rows) if(rows.hasOwnProperty(k)) {
+				f(rows[k])
 			}
 		}
 
-		var relation = function(keyGen, keyCompare) {
-			var self = simpleRelation(keyGen, keyCompare)
-			self.pub.id = lastId++
-
-			// Public functions:
-			self.pub.group = function(groupGen) {
-				return group(self, groupGen)
+		self.pub.drop = function() {
+			var l = self.listeners.length				
+			while(--l >= 0) {
+				self.listeners[l].drop()
 			}
-			self.pub.map = function(rowMapper) {
-				return db.Map([self], rowMapper)
-			}
-			self.pub.join = function(sources, keyGen, requires) {
-				return db.Join([self].concat(sources), keyGen, requires)
-			}
-			self.pub.count = function(counter) {
-				return db.Count([self], counter)
-			}
-			self.pub.sort = function(comparer) {
-				return sort(self, comparer)
-			}
-			self.pub.order = function() {
-				return order(self)
-			}
-			self.pub.keyTrigger = function() {
-				return db.KeyTrigger(self)
-			}
-			self.pub.filter = function(f) {
-				return db.Filter(f)
-			}
-
-			relations.insert(self)
-			return self
+			delete self.listeners
+			delete self.broadcastTo
 		}
 
-		db.Table = function(keyGen) {
-			var self = relation(keyGen ? keyGen : idGen)
-
-			var change = function(rows, op) {
-				/*for(var i = 0; var len = rows.length; i < len; i++) {
-					op(rows[i])
-				}*/
-				rows.forEach(op)
-			}
-			self.pub.insert = function(rows) { change(rows, self.insert)    }
-			self.pub.remove = function(keys) { change(keys, self.removeKey) }
-			self.pub.update = function(rows) { change(rows, self.update)    }
-			self.pub.upsert = function(rows) { change(rows, self.upsert)    }
-			self.pub.clear  = function() {
-				for(k in self.rows) if(self.rows.hasOwnProperty(k)) {
-					self.removeKey(k)
-				}
-			}
-
-			tables.insert(self)
-			return self.pub
+		var checkKeyGen = function(row) {
+			var key = keyGen(row)
+			if(key === undefined || key === null)
+				throw "Cannot generate key for row: " + row;
+			return key
 		}
 
-		var derived = function(self, sources, sourceInsert, sourceUpdate, sourceRemove) {
-			var i = sources.length
-			while(--i >= 0) {
-				sources[i] = sources[i].pub ? sources[i] : relations.get(sources[i].id)
-			}
-			self.sources = sources
+		self.signalInsert = function(row) {
+			self.pub.forListeners(function(l) { l.sourceInsert(self, row) })
+		}
+		self.signalUpdate = function(last, next) {
+			self.pub.forListeners(function(l) { l.sourceUpdate(self, last, next) })
+		}
+		self.signalRemove = function(row) {
+			self.pub.forListeners(function(l) { l.sourceRemove(self, row) })
+		}
 
-			relate.listener(sourceInsert, sourceUpdate, sourceRemove, self)
-
-			var superDrop
-			if(self.pub.drop) {
-				superDrop = self.pub.drop
+		self.insert = function(row) {
+			if(!self.insertIfNotExists(row))
+				throw "Primary key constraint violation for key: " + keyGen(row)
+		}
+		self.insertIfNotExists = function(row) {
+			var key = checkKeyGen(row)
+			if(rows[key] === undefined) {
+				rows[key] = row
+				rowCount++
+				self.signalInsert(row)
+				return true
 			}
-			self.pub.drop = function() {
-				var p = sources.length
-				while(--p >= 0) {
-					sources[p].removeFromListeners(self)
+			return false
+		}
+		self.updateForKeys = function(last, next, lastKey, nextKey) {
+			if(!keyCompare(lastKey, nextKey)) {
+				self.remove(last)
+				self.insert(next)
+			} else {					
+				rows[nextKey] = next
+				self.signalUpdate(last, next)
+			}
+		}
+		self.upsert = function(row) {
+			var key = checkKeyGen(row)
+			if(key !== undefined) {
+				var existing = rows[key]
+				if(existing === undefined) {
+					self.insert(row)
+				} else {
+					self.updateForKeys(existing, row, keyGen(existing), key)
 				}
-				if(superDrop)
-					superDrop()
 			}
+		}
+		self.update = function(last, next) {
+			self.updateForKeys(last, next, checkKeyGen(last), checkKeyGen(next))
+		}
+		self.remove = function(row) {
+			if(!self.removeIfExists(row)) {
+				throw "Tried to remove a non-existent row with key: " + keyGen(row);
+			}
+		}
+		self.removeIfExists = function(row) {
+			return self.removeKeyIfExists(keyGen(row))
+		}
+		self.removeKey = function(key) {
+			self.remove(rows[key])
+		}
+		self.removeKeyIfExists = function(key) {
+			var row = rows[key]
+			if(key !== undefined && row !== undefined) {
+				delete rows[key]
+				rowCount--
+				self.signalRemove(row)
+				return true
+			}
+			return false
+		}
+		self.pub.getRowCount = function() { return rowCount }
 
+		self.pub.rebroadcastsTo = function(listener) {
+			self.pub.forEach(function(row) { listener.sourceInsert(self, row) })
+			self.pub.broadcastTo(listener)
+		}
+
+		return self
+	}
+
+	var relationKeyGen = function(rel) { return rel.pub.id }
+	var relations = simpleRelation(relationKeyGen)
+	var tables = simpleRelation(relationKeyGen)
+	var forTables = function(op) {
+		var ts = tables.getRows()
+		for(k in ts) if(ts.hasOwnProperty(k)) {
+			op(ts[k])
+		}
+	}
+
+	var relation = function(keyGen, keyCompare) {
+		var self = simpleRelation(keyGen, keyCompare)
+		self.pub.id = lastId++
+
+		// Public functions:
+		self.pub.group = function(groupGen) {
+			return group(self, groupGen)
+		}
+		self.pub.map = function(rowMapper) {
+			return Relate.Map([self], rowMapper)
+		}
+		self.pub.join = function(sources, keyGen, requires) {
+			return Relate.Join([self].concat(sources), keyGen, requires)
+		}
+		self.pub.count = function(counter) {
+			return Relate.Count([self], counter)
+		}
+		self.pub.sort = function(comparer) {
+			return sort(self, comparer)
+		}
+		self.pub.order = function() {
+			return order(self)
+		}
+		self.pub.keyTrigger = function() {
+			return Relate.KeyTrigger(self)
+		}
+		self.pub.filter = function(f) {
+			return Relate.Filter(f)
+		}
+
+		relations.insert(self)
+		return self
+	}
+
+	relate.Table = function(keyGen) {
+		var self = relation(keyGen ? keyGen : idGen)
+
+		var change = function(rows, op) {
+			rows.forEach(op)
+		}
+		self.pub.insert = function(rows) { change(rows, self.insert)    }
+		self.pub.remove = function(keys) { change(keys, self.removeKey) }
+		self.pub.update = function(rows) { change(rows, self.update)    }
+		self.pub.upsert = function(rows) { change(rows, self.upsert)    }
+		self.pub.clear  = function() {
+			for(k in self.rows) if(self.rows.hasOwnProperty(k)) {
+				self.removeKey(k)
+			}
+		}
+
+		tables.insert(self)
+		return self.pub
+	}
+
+	var derived = function(self, sources, sourceInsert, sourceUpdate, sourceRemove) {
+		var i = sources.length
+		while(--i >= 0) {
+			sources[i] = sources[i].pub ? sources[i] : relations.get(sources[i].id)
+		}
+		self.sources = sources
+
+		relate.listener(sourceInsert, sourceUpdate, sourceRemove, self)
+
+		var superDrop
+		if(self.pub.drop) {
+			superDrop = self.pub.drop
+		}
+		self.pub.drop = function() {
 			var p = sources.length
 			while(--p >= 0) {
-				var parent = sources[p]
-				var parentRows = parent.rows
-				for(r in parentRows) if(parentRows.hasOwnProperty(r)) {
-					sourceInsert(parent, parentRows[r])
+				sources[p].stopBroadcastingTo(self)
+			}
+			if(superDrop)
+				superDrop()
+		}
+
+		var p = sources.length
+		while(--p >= 0) {
+			sources[p].pub.rebroadcastsTo(self)
+		}
+
+		return self
+	}
+
+	var derivedRelation = function(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove, keyCompare) {
+		return derived(relation(keyGen, keyCompare), sources, sourceInsert, sourceUpdate, sourceRemove)
+	}
+
+	var triggerGrouper = function(row) {
+		return row.key
+	}
+	var triggerKeyGen = function(row) {
+		return [row.key, row.name]
+	}
+	relate.KeyTrigger = function(base) {
+		var handlers = relation(triggerKeyGen, arrayKeyCompare)
+		var pub = {}
+		var keyGroups = group(handlers, triggerGrouper)
+
+		pub.listen = function(key, name, handler) {
+			handlers.insert({ key: key, name: name, handler: handler })
+			var row = base.get(key)
+			if(row !== undefined) {
+				handler(undefined, row, base)
+			}
+		}
+		pub.unlisten = function(key, name) {
+			handlers.removeKey([key, name])
+		}
+
+		var sourceChange = function(table, key, last, next) {
+			var rows = keyGroups.getGroup(key).pub.getRows()
+			for(k in rows) if(rows.hasOwnProperty(k)) {
+				rows[k].handler(last, next, table)
+			}
+		}
+		var sourceInsert = function(table, row) {
+			sourceChange(table, table.keyGen(row), undefined, row)
+		}
+		var sourceUpdate = function(table, last, next) {
+			var lastKey = table.keyGen(last)
+			var nextKey = table.keyGen(next)
+			if(table.keyCompare(lastKey, nextKey)) {
+				sourceChange(table, lastKey, last, next)
+			} else {
+				sourceChange(table, lastKey, last, undefined)
+				sourceChange(table, nextKey, undefined, next)
+			}
+		}
+		var sourceRemove = function(table, row) {
+			sourceChange(table, table.keyGen(row), row, undefined)
+		}
+
+		return derived({ pub: pub }, [base], sourceInsert, sourceUpdate, sourceRemove).pub
+	}
+	relate.Scalars = function() {
+		var scalars = relation(scalarKeyGen)
+		var pub = relate.KeyTrigger(scalars)
+		pub.set = function(key, value) {
+			scalars.upsert({key: key, value: value})
+		}
+		pub.clear = function(key) {
+			scalars.removeKeyIfExists(key)
+		}
+		pub.get = function(key) {
+			return scalars.get(key).value
+		}
+		var trigListen = pub.listen
+		pub.listen = function(key, name, handler) {
+			trigHandler = function(last, next, table) {
+				return handler(next ? next.value : undefined, last ? last.value : undefined)
+			}
+			trigListen(key, name, trigHandler)
+		}
+
+		return pub
+	}
+
+	relate.Map = function(bases, mapper, keyGen) {		
+		keyGen = keyGen ? keyGen : bases[0].keyGen
+
+		var sourceInsert = function(table, ins) {
+			var mapped = mapper(ins, table)
+			if(mapped !== undefined)
+				self.insert(mapper(ins, table))
+		}
+		var sourceUpdate = function(table, last, next) {
+			var lastMapped = mapper(last, table)
+			var nextMapped = mapper(next, table)
+			if(lastMapped === undefined) {
+				if(nextMapped !== undefined) {
+					self.insert(nextMapped)
 				}
-				parent.pub.addToListeners(self)
-			}
-
-			return self
-		}
-
-		var derivedRelation = function(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove, keyCompare) {
-			return derived(relation(keyGen, keyCompare), sources, sourceInsert, sourceUpdate, sourceRemove)
-		}
-
-		var triggerGrouper = function(row) {
-			return row.key
-		}
-		var triggerKeyGen = function(row) {
-			return [row.key, row.name]
-		}
-		db.KeyTrigger = function(base) {
-			var handlers = relation(triggerKeyGen, arrayKeyCompare)
-			var pub = {}
-			var keyGroups = group(handlers, triggerGrouper)
-
-			pub.listen = function(key, name, handler) {
-				handlers.insert({ key: key, name: name, handler: handler })
-				var row = base.get(key)
-				if(row !== undefined) {
-					handler(undefined, row, base)
-				}
-			}
-			pub.unlisten = function(key, name) {
-				handlers.removeKey([key, name])
-			}
-
-			var sourceChange = function(table, key, last, next) {
-				var rows = keyGroups.getGroup(key).pub.getRows()
-				for(k in rows) if(rows.hasOwnProperty(k)) {
-					rows[k].handler(last, next, table)
-				}
-			}
-			var sourceInsert = function(table, row) {
-				sourceChange(table, table.keyGen(row), undefined, row)
-			}
-			var sourceUpdate = function(table, last, next) {
-				var lastKey = table.keyGen(last)
-				var nextKey = table.keyGen(next)
-				if(table.keyCompare(lastKey, nextKey)) {
-					sourceChange(table, lastKey, last, next)
+			} else {
+				if(nextMapped === undefined) {
+					self.remove(nextMapped)
 				} else {
-					sourceChange(table, lastKey, last, undefined)
-					sourceChange(table, nextKey, undefined, next)
+					self.update(lastMapped, nextMapped)
 				}
 			}
-			var sourceRemove = function(table, row) {
-				sourceChange(table, table.keyGen(row), row, undefined)
-			}
-
-			return derived({ pub: pub }, [base], sourceInsert, sourceUpdate, sourceRemove).pub
 		}
-		db.Scalars = function() {
-			var scalars = relation(scalarKeyGen)
-			var pub = db.KeyTrigger(scalars)
-			pub.set = function(key, value) {
-				scalars.upsert({key: key, value: value})
-			}
-			pub.clear = function(key) {
-				scalars.removeKeyIfExists(key)
-			}
-			pub.get = function(key) {
-				return scalars.get(key).value
-			}
-			var trigListen = pub.listen
-			pub.listen = function(key, name, handler) {
-				trigHandler = function(last, next, table) {
-					return handler(next ? next.value : undefined, last ? last.value : undefined)
-				}
-				trigListen(key, name, trigHandler)
-			}
-
-			return pub
+		var sourceRemove = function(table, rem) {
+			var mapped = mapper(rem, table)
+			if(mapped !== undefined)
+				self.remove(mapped)
 		}
 
-		db.Map = function(bases, mapper, keyGen) {		
-			keyGen = keyGen ? keyGen : bases[0].keyGen
+		var self = derivedRelation(bases, keyGen, sourceInsert, sourceUpdate, sourceRemove)
+		return self.pub
+	}
 
-			var sourceInsert = function(table, ins) {
-				var mapped = mapper(ins, table)
-				if(mapped !== undefined)
-					self.insert(mapper(ins, table))
-			}
-			var sourceUpdate = function(table, last, next) {
-				var lastMapped = mapper(last, table)
-				var nextMapped = mapper(next, table)
-				if(lastMapped === undefined) {
-					if(nextMapped !== undefined) {
-						self.insert(nextMapped)
-					}
-				} else {
-					if(nextMapped === undefined) {
-						self.remove(nextMapped)
-					} else {
-						self.update(lastMapped, nextMapped)
-					}
-				}
-			}
-			var sourceRemove = function(table, rem) {
-				var mapped = mapper(rem, table)
-				if(mapped !== undefined)
-					self.remove(mapped)
-			}
+	relate.Filter = function(base, filterer) {
+		return relate.Map([base], function(row, table) { return filterer(row, table) ? row : undefined }, base.keyGen)
+	}
 
-			var self = derivedRelation(bases, keyGen, sourceInsert, sourceUpdate, sourceRemove)
-			return self.pub
+	var group = function(base, grouper) {
+		var groups = {}
+		var self
+		
+		var getGroup = function(gkey) {
+			var grp = groups[gkey]
+			if(grp === undefined) {
+				grp = derivedRelation([self], base.keyGen)
+				groups[gkey] = grp
+			}
+			return grp
 		}
-
-		db.Filter = function(base, filterer) {
-			return relate.Map([base], function(row, table) { return filterer(row, table) ? row : undefined }, base.keyGen)
-		}
-
-		var group = function(base, grouper) {
-			var groups = {}
-			var self
-			
-			var getGroup = function(gkey) {
-				var grp = groups[gkey]
-				if(grp === undefined) {
-					grp = derivedRelation([self], base.keyGen)
-					groups[gkey] = grp
-				}
-				return grp
-			}
-			var getGroupFor = function(row) {
-				return getGroup(grouper(row))
-			}		
-
-			var sourceInsert = function(table, row) {
-				var gkey = grouper(row, table)
-				getGroup(gkey).insert(row)
-				self.signalInsert(row)
-			}
-			var sourceUpdate = function(table, last, next) {
-				lastKey = grouper(last, table)
-				nextKey = grouper(next, table)
-				var lastGroup = getGroup(lastKey)
-				if(lastKey === nextKey) {
-					lastGroup.updateForKeys(last, next, lastKey, nextKey)
-				} else {
-					lastGroup.remove(last)
-					getGroup(nextKey).insert(next)
-				}
-				self.signalUpdate(last, next)
-			}
-			var sourceRemove = function(table, row) {
-				var gkey = grouper(row, table)
-				var grp = getGroup(gkey)
-				grp.remove(row)
-				self.signalRemove(row)
-			}
-
-			self = derivedRelation([base], base.keyGen, sourceInsert, sourceUpdate, sourceRemove)
-			self.pub.groupKeyGen = grouper
-			self.pub.getGroup = getGroup
-			self.pub.getGroupFor = getGroupFor
-			return self.pub
-		}
-
-		db.Aggregate = function(bases, initial, apply, unapply) {		
-			var total = initial
-			var self = noobj
-
-			var update = function(newTotal) {
-				total = newTotal
-				self.pub.forListeners(function(l) {
-					l.signalUpdate(total, newTotal)
-				})
-			}
-
-			var sourceInsert = function(table, row) {
-				update(apply(total, row, table))
-			}
-			var sourceUpdate = function(table, last, next) {
-				update(apply(unapply(total, last, table), next, table))
-			}
-			var sourceRemove = function(table, row) {
-				update(unapply(total, row, table))
-			}
-
-			var self = derivedRelation(bases, undefined, sourceInsert, sourceUpdate, sourceRemove)
-			return function() { return total }
-		}
-
-		db.Sum = function(bases, apply) {
-			var add = function(total, row, table) {
-				return total + apply(row, table)
-			}
-			var sub = function(total, row, table) {
-				return total - apply(row, table)
-			}
-			return db.Aggregate(bases, 0, add, sub)
-		}
-
-		db.Count = function(bases, apply) {
-			var count = function(row, table) {
-				return apply(row, table) ? 1 : 0
-			}
-			return db.Sum(bases, count)
-		}
-
-		var sort = function(relation, comparer) {
-			var data = []
-			var indices = {}
-			comparer = comparer ? comparer : zero
-			var setIndex = function(index) {
-				indices[relation.keyGen(data[index])] = index
-			}
-			var indexSearch = function(row, start, end) {
-				var length = end - start + 1
-				var at = start + Math.floor(length / 2)
-				if(length <= 0) {
-					return at
-				}
-				var result = comparer(row, data[at])
-				if(result === 0) {
-					return at
-				}
-				else if(result < 0) {
-					return indexSearch(row, start, at - 1)
-				} else {
-					return indexSearch(row, at + 1, end)
-				}
-			}
-			var insertIndex = function(row) {
-				return indexSearch(row, 0, data.length - 1)
-			}
-			var indexOf = function(row) {
-				return indices[relation.keyGen(row)]
-			}
-			var sourceInsert = function(table, row) {
-				var index = insertIndex(row)
-				data.splice(index, 0, row)
-
-				var i = data.length
-				while(--i >= index) {
-					setIndex(i)
-				}
-
-				self.signalInsert(data[i])
-				i = data.length - 1
-				while(--i >= index) {
-					self.signalUpdate(data[i+1], data[i])
-				}
-			}
-			var sourceRemove = function(table, row) {
-				var index = indexOf(row)
-				data.splice(index, 1)
-				delete indices[index]
-				self.signalRemove(row)
-
-				var i = data.length
-				while(--i >= index) {
-					self.signalUpdate(data[i], data[i-1])
-				}
-			}
-			var sourceUpdate = function(table, last, next) {
-				var lastIndex = indexOf(last)
-				if(comparer(last, next) === 0) {
-					data[lastIndex] = next
-				} else {					
-					data.splice(lastIndex, 1)
-					var nextIndex = insertIndex(next)
-					data.splice(nextIndex, 0, next)
-					setIndex(nextIndex)
-				}
-				self.signalUpdate(last, next)
-			}
-
-			var self = derivedRelation([relation], relation.keyGen, sourceInsert, sourceUpdate, sourceRemove)
-
-			self.pub.indexOf = indexOf
-			self.pub.getData = function() {
-				return data
-			}
-			self.pub.resort = function(newComparer) {
-				var newData = data.slice(0)
-				newData.sort(newComparer)
-				var i = data.length
-				while(--i >= 0) {
-					if(data[i] !== newData[i]) {
-						self.signalUpdate(data[i], newData[i])
-					}
-				}
-				data = newData
-				comparer = newComparer
-			}
-			self.pub.reverse = function() {
-				data.reverse()
-
-				var i = data.length
-				while(--i >= 0) {
-					self.signalUpdate(data[data.length - i], data[i])
-				}
-
-				if(comparer.original) {
-					comparer = comparer.original
-				} else {
-					var original = comparer
-					comparer = function(a,b) {
-						return original(b,a)
-					}
-					comparer.original = original
-				}
-			}
-
-			return self.pub
-		}
-
-		var order = function(base) {
-			var head = undefined
-			var tail = head
-			var orders = {}
-
-			var sourceInsert = function(table, sourceRow) {
-				row = {row: sourceRow, succ: undefined}
-				if(head === undefined) {
-					row.pred = undefined
-					head = row					
-				} else {
-					row.pred = tail
-					tail.succ = row
-				}
-				tail = row
-				orders[table.keyGen(sourceRow)] = row
-
-				self.signalInsert(tail)
-			}
-			var sourceUpdate = function(table, sourceLast, sourceNext) {
-				var last = orders[table.keyGen(sourceLast)]
-				var next = { pred: last.pred, row: sourceNext, succ: last.succ }
-				self.signalUpdate(last, next)
-				last.row = sourceNext
-			}
-			var remove = function(pos) {
-				if(pos === head) {
-					head = pos.succ
-				} else {
-					pos.pred.succ = pos.succ
-				}
-				if(pos === tail) {
-					tail = pos.pred
-				} else {
-					pos.succ.pred = pos.pred
-				}
-			}
-			var sourceRemove = function(table, row) {
-				var key = table.keyGen(row)
-				row = orders[key]
-				remove(row)
-				delete orders[key]
-				self.signalRemove(row)
-			}
-
-			var self = derivedRelation([base], base.keyGen, sourceInsert, sourceUpdate, sourceRemove, base.keyCompare)
-
-			var bound = function(i) {
-				return (i < 0) ? 0 : ((i >= orders.length) ? orders.length - 1 : i)
-			}
-			var order = function(row) {
-				return (row === undefined) ? undefined : orders[base.keyGen(row)]
-			}
-			self.pub.swap = function(a, b) {
-				var oa = order(a)
-				var ob = order(b)
-				if(oa !== undefined && ob !== undefined) {
-					oa.row = b
-					ob.row = a
-					orders[base.keyGen(a)] = ob
-					orders[base.keyGen(b)] = oa
-					self.signalUpdate(oa)
-					self.signalUpdate(ob)
-				}
-			}			
-			var setPos = function(pos, at) {
-				var pred = (at === undefined) ? tail : at.pred
-				var succ = at
-
-				pos.pred = pred
-				pos.succ = succ
-
-				if(pred !== undefined) {
-					pred.succ = pos
-				} else {
-					head = pos
-				}
-				if(succ !== undefined) {
-					succ.pred = pos
-				} else {
-					tail = pos
-				}
-			}
-			self.pub.move = function(from, to) {
-				if(from === to) return;
-				
-				var fromKey = base.keyGen(from)
-				var fromOrder = order(from)
-				var toOrder = order(to)
-
-				if(fromOrder === undefined) return;
-				
-				remove(fromOrder)
-				setPos(fromOrder, toOrder)
-			}
-			self.pub.toArray = function() {
-				var i = head
-				var res = []
-				while(i !== undefined) {
-					res[res.length] = i.row
-					i = i.succ
-				}
-				return res
-			}
-
-			return self.pub
-		}
-
-		db.Join = function(sources, required) {
-			var self = noobj
-
-			if(!required)
-				required = noobj
-
-			var keyGen = function(join) {
-				var key = []
-				var i = sources.length
-				while(--i >= 0) {
-					key[i] = (join[i] !== undefined) ? sources[i].keyGen(join[i]) : undefined
-				}
-				return key
-			}
-
-			var rowsFor = function(table, joinOn) {
-				if(table.pub.getGroupFor)
-					return table.pub.getGroup(joinOn).pub.toArray()
-					else {
-						var row = table.rows[joinOn]
-						return (row !== undefined) ? [row] : []
-					}
-			}
-			var hasRowsFor = function(table, joinOn) {
-				return table.pub.getGroupFor ? (table.pub.getGroup(joinOn).pub.getRowCount() > 0) : (table.rows[joinOn] !== undefined)
-			}
-			var keyFor = function(table, row) {
-				return table.pub.groupKeyGen ? table.pub.groupKeyGen(row) : table.keyGen(row)
-			}
-			var joinsFor = function(joinOn, table, row) {
-				var rows = []
-				var i = sources.length
-				var empty = true
-				while(--i >= 0) {					
-					var rel = sources[i]
-					var res = (rel === table) ? [row] : rowsFor(rel, joinOn)
-					if(res.length === 0) {
-						res = required[i] ? [] : [undefined]
-					}
-					if(res.legnth > 0 || res[0] !== undefined) {
-						empty = false
-					}
-					rows[i] = res
-				}
-				return empty ? [] : cartProd(rows)
-			}
-			var sourceInsert = function(table, row) {
-				var joinOn = keyFor(table, row)
-				var sourceIndex = sources.indexOf(table)
-
-				rows = joinsFor(joinOn, table, row)
-				i = rows.length
-				while(--i >= 0) {					
-					var row = rows[i]
-
-					var key = keyGen(row)					
-					key[sourceIndex] = undefined
-					self.removeKeyIfExists(key)
-
-					self.insert(row)
-				}
-			}
-			var sourceUpdate = function(table, last, next) {
-				var lastJoinOn = keyFor(table, last)
-				var nextJoinOn = keyFor(table, next)
-
-				if(lastJoinOn !== nextJoinOn) {
-					sourceRemove(table, last)
-					sourceInsert(table, next)
-				} else {
-					var nexts = joinsFor(nextJoinOn, table, next)
-					var lasts = joinsFor(lastJoinOn, table, next)
-					i = nexts.length
-					while(--i >= 0) {
-						self.update(lasts[i], nexts[i])
-					}
-				}
-			}
-			var sourceRemove = function(table, row) {
-				var sourceIndex = sources.indexOf(table)
-				var joinOn = keyFor(table, row)
-				var joins = joinsFor(joinOn, table, row)
-				var i = joins.length
-				while(--i >= 0) {
-					var join = joins[i]
-					self.remove(join)
-					join[sourceIndex] = undefined
-					var j = sources.length
-					if(!hasRowsFor(sources[sourceIndex], joinOn) && !required[sourceIndex]) {
-						self.insert(join)
-					}
-				}
-			}
-
-			self = derivedRelation(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove, arrayKeyCompare)
-			return self.pub
+		var getGroupFor = function(row) {
+			return getGroup(grouper(row))
 		}		
 
-		return db
+		var sourceInsert = function(table, row) {
+			var gkey = grouper(row, table)
+			getGroup(gkey).insert(row)
+			self.signalInsert(row)
+		}
+		var sourceUpdate = function(table, last, next) {
+			lastKey = grouper(last, table)
+			nextKey = grouper(next, table)
+			var lastGroup = getGroup(lastKey)
+			if(lastKey === nextKey) {
+				lastGroup.updateForKeys(last, next, lastKey, nextKey)
+			} else {
+				lastGroup.remove(last)
+				getGroup(nextKey).insert(next)
+			}
+			self.signalUpdate(last, next)
+		}
+		var sourceRemove = function(table, row) {
+			var gkey = grouper(row, table)
+			var grp = getGroup(gkey)
+			grp.remove(row)
+			self.signalRemove(row)
+		}
+
+		self = derivedRelation([base], base.keyGen, sourceInsert, sourceUpdate, sourceRemove)
+		self.pub.groupKeyGen = grouper
+		self.pub.getGroup = getGroup
+		self.pub.getGroupFor = getGroupFor
+		return self.pub
 	}
+
+	relate.Aggregate = function(bases, initial, apply, unapply) {		
+		var total = initial
+		var self = noobj
+
+		var update = function(newTotal) {
+			total = newTotal
+			self.pub.forListeners(function(l) {
+				l.signalUpdate(total, newTotal)
+			})
+		}
+
+		var sourceInsert = function(table, row) {
+			update(apply(total, row, table))
+		}
+		var sourceUpdate = function(table, last, next) {
+			update(apply(unapply(total, last, table), next, table))
+		}
+		var sourceRemove = function(table, row) {
+			update(unapply(total, row, table))
+		}
+
+		var self = derivedRelation(bases, undefined, sourceInsert, sourceUpdate, sourceRemove)
+		return function() { return total }
+	}
+
+	relate.Sum = function(bases, apply) {
+		var add = function(total, row, table) {
+			return total + apply(row, table)
+		}
+		var sub = function(total, row, table) {
+			return total - apply(row, table)
+		}
+		return relate.Aggregate(bases, 0, add, sub)
+	}
+
+	relate.Count = function(bases, apply) {
+		var count = function(row, table) {
+			return apply(row, table) ? 1 : 0
+		}
+		return relate.Sum(bases, count)
+	}
+
+	var sort = function(relation, comparer) {
+		var data = []
+		var indices = {}
+		comparer = comparer ? comparer : zero
+		var setIndex = function(index) {
+			indices[relation.keyGen(data[index])] = index
+		}
+		var indexSearch = function(row, start, end) {
+			var length = end - start + 1
+			var at = start + Math.floor(length / 2)
+			if(length <= 0) {
+				return at
+			}
+			var result = comparer(row, data[at])
+			if(result === 0) {
+				return at
+			}
+			else if(result < 0) {
+				return indexSearch(row, start, at - 1)
+			} else {
+				return indexSearch(row, at + 1, end)
+			}
+		}
+		var insertIndex = function(row) {
+			return indexSearch(row, 0, data.length - 1)
+		}
+		var indexOf = function(row) {
+			return indices[relation.keyGen(row)]
+		}
+		var sourceInsert = function(table, row) {
+			var index = insertIndex(row)
+			data.splice(index, 0, row)
+
+			var i = data.length
+			while(--i >= index) {
+				setIndex(i)
+			}
+
+			self.signalInsert(data[i])
+			i = data.length - 1
+			while(--i >= index) {
+				self.signalUpdate(data[i+1], data[i])
+			}
+		}
+		var sourceRemove = function(table, row) {
+			var index = indexOf(row)
+			data.splice(index, 1)
+			delete indices[index]
+			self.signalRemove(row)
+
+			var i = data.length
+			while(--i >= index) {
+				self.signalUpdate(data[i], data[i-1])
+			}
+		}
+		var sourceUpdate = function(table, last, next) {
+			var lastIndex = indexOf(last)
+			if(comparer(last, next) === 0) {
+				data[lastIndex] = next
+			} else {					
+				data.splice(lastIndex, 1)
+				var nextIndex = insertIndex(next)
+				data.splice(nextIndex, 0, next)
+				setIndex(nextIndex)
+			}
+			self.signalUpdate(last, next)
+		}
+
+		var self = derivedRelation([relation], relation.keyGen, sourceInsert, sourceUpdate, sourceRemove)
+
+		self.pub.indexOf = indexOf
+		self.pub.getData = function() {
+			return data
+		}
+		self.pub.resort = function(newComparer) {
+			var newData = data.slice(0)
+			newData.sort(newComparer)
+			var i = data.length
+			while(--i >= 0) {
+				if(data[i] !== newData[i]) {
+					self.signalUpdate(data[i], newData[i])
+				}
+			}
+			data = newData
+			comparer = newComparer
+		}
+		self.pub.reverse = function() {
+			data.reverse()
+
+			var i = data.length
+			while(--i >= 0) {
+				self.signalUpdate(data[data.length - i], data[i])
+			}
+
+			if(comparer.original) {
+				comparer = comparer.original
+			} else {
+				var original = comparer
+				comparer = function(a,b) {
+					return original(b,a)
+				}
+				comparer.original = original
+			}
+		}
+
+		return self.pub
+	}
+
+	var order = function(base) {
+		var head = undefined
+		var tail = head
+		var orders = {}
+
+		var sourceInsert = function(table, sourceRow) {
+			row = {row: sourceRow, succ: undefined}
+			if(head === undefined) {
+				row.pred = undefined
+				head = row					
+			} else {
+				row.pred = tail
+				tail.succ = row
+			}
+			tail = row
+			orders[table.keyGen(sourceRow)] = row
+
+			self.signalInsert(tail)
+		}
+		var sourceUpdate = function(table, sourceLast, sourceNext) {
+			var last = orders[table.keyGen(sourceLast)]
+			var next = { pred: last.pred, row: sourceNext, succ: last.succ }
+			self.signalUpdate(last, next)
+			last.row = sourceNext
+		}
+		var remove = function(pos) {
+			if(pos === head) {
+				head = pos.succ
+			} else {
+				pos.pred.succ = pos.succ
+			}
+			if(pos === tail) {
+				tail = pos.pred
+			} else {
+				pos.succ.pred = pos.pred
+			}
+		}
+		var sourceRemove = function(table, row) {
+			var key = table.keyGen(row)
+			row = orders[key]
+			remove(row)
+			delete orders[key]
+			self.signalRemove(row)
+		}
+
+		var self = derivedRelation([base], base.keyGen, sourceInsert, sourceUpdate, sourceRemove, base.keyCompare)
+
+		var bound = function(i) {
+			return (i < 0) ? 0 : ((i >= orders.length) ? orders.length - 1 : i)
+		}
+		var order = function(row) {
+			return (row === undefined) ? undefined : orders[base.keyGen(row)]
+		}
+		self.pub.swap = function(a, b) {
+			var oa = order(a)
+			var ob = order(b)
+			if(oa !== undefined && ob !== undefined) {
+				oa.row = b
+				ob.row = a
+				orders[base.keyGen(a)] = ob
+				orders[base.keyGen(b)] = oa
+				self.signalUpdate(oa)
+				self.signalUpdate(ob)
+			}
+		}			
+		var setPos = function(pos, at) {
+			var pred = (at === undefined) ? tail : at.pred
+			var succ = at
+
+			pos.pred = pred
+			pos.succ = succ
+
+			if(pred !== undefined) {
+				pred.succ = pos
+			} else {
+				head = pos
+			}
+			if(succ !== undefined) {
+				succ.pred = pos
+			} else {
+				tail = pos
+			}
+		}
+		self.pub.move = function(from, to) {
+			if(from === to) return;
+			
+			var fromKey = base.keyGen(from)
+			var fromOrder = order(from)
+			var toOrder = order(to)
+
+			if(fromOrder === undefined) return;
+			
+			remove(fromOrder)
+			setPos(fromOrder, toOrder)
+		}
+		self.pub.toArray = function() {
+			var i = head
+			var res = []
+			while(i !== undefined) {
+				res[res.length] = i.row
+				i = i.succ
+			}
+			return res
+		}
+
+		return self.pub
+	}
+
+	relate.Join = function(sources, required) {
+		var self = noobj
+
+		if(!required)
+			required = noobj
+
+		var keyGen = function(join) {
+			var key = []
+			var i = sources.length
+			while(--i >= 0) {
+				key[i] = (join[i] !== undefined) ? sources[i].keyGen(join[i]) : undefined
+			}
+			return key
+		}
+
+		var rowsFor = function(table, joinOn) {
+			if(table.pub.getGroupFor)
+				return table.pub.getGroup(joinOn).pub.toArray()
+				else {
+					var row = table.rows[joinOn]
+					return (row !== undefined) ? [row] : []
+				}
+		}
+		var hasRowsFor = function(table, joinOn) {
+			return table.pub.getGroupFor ? (table.pub.getGroup(joinOn).pub.getRowCount() > 0) : (table.rows[joinOn] !== undefined)
+		}
+		var keyFor = function(table, row) {
+			return table.pub.groupKeyGen ? table.pub.groupKeyGen(row) : table.keyGen(row)
+		}
+		var joinsFor = function(joinOn, table, row) {
+			var rows = []
+			var i = sources.length
+			var empty = true
+			while(--i >= 0) {					
+				var rel = sources[i]
+				var res = (rel === table) ? [row] : rowsFor(rel, joinOn)
+				if(res.length === 0) {
+					res = required[i] ? [] : [undefined]
+				}
+				if(res.legnth > 0 || res[0] !== undefined) {
+					empty = false
+				}
+				rows[i] = res
+			}
+			return empty ? [] : cartProd(rows)
+		}
+		var sourceInsert = function(table, row) {
+			var joinOn = keyFor(table, row)
+			var sourceIndex = sources.indexOf(table)
+
+			rows = joinsFor(joinOn, table, row)
+			i = rows.length
+			while(--i >= 0) {					
+				var row = rows[i]
+
+				var key = keyGen(row)					
+				key[sourceIndex] = undefined
+				self.removeKeyIfExists(key)
+
+				self.insert(row)
+			}
+		}
+		var sourceUpdate = function(table, last, next) {
+			var lastJoinOn = keyFor(table, last)
+			var nextJoinOn = keyFor(table, next)
+
+			if(lastJoinOn !== nextJoinOn) {
+				sourceRemove(table, last)
+				sourceInsert(table, next)
+			} else {
+				var nexts = joinsFor(nextJoinOn, table, next)
+				var lasts = joinsFor(lastJoinOn, table, next)
+				i = nexts.length
+				while(--i >= 0) {
+					self.update(lasts[i], nexts[i])
+				}
+			}
+		}
+		var sourceRemove = function(table, row) {
+			var sourceIndex = sources.indexOf(table)
+			var joinOn = keyFor(table, row)
+			var joins = joinsFor(joinOn, table, row)
+			var i = joins.length
+			while(--i >= 0) {
+				var join = joins[i]
+				self.remove(join)
+				join[sourceIndex] = undefined
+				var j = sources.length
+				if(!hasRowsFor(sources[sourceIndex], joinOn) && !required[sourceIndex]) {
+					self.insert(join)
+				}
+			}
+		}
+
+		self = derivedRelation(sources, keyGen, sourceInsert, sourceUpdate, sourceRemove, arrayKeyCompare)
+		return self.pub
+	}
+
 	return relate
 }
 

@@ -8,12 +8,11 @@ var time = function(its, f) {
 }
 
 var keyMaker = function(r) { return r[0] }
-var db = Relate.db()
-var t1 = db.Table(keyMaker)
-var t2 = db.Table(keyMaker)
+var t1 = Relate.Table(keyMaker)
+var t2 = Relate.Table(keyMaker)
 
 var person = function(name, city, state, age) { return {name: name, city: city, state: state, age: age} }
-var people = db.Table(function(p) {
+var people = Relate.Table(function(p) {
 	return p.name
 })
 var bob = person("Bob","Miami","FL", 40)
@@ -22,10 +21,11 @@ var lumbergh = person("Lumbergh","Dallas","TX", 50)
 var milton = person("Milton","Dallas","TX", 42)
 
 var city = function(name, state) { return {name: name, state: state} }
-var cities = db.Table(function(c) { return c } )
+var cities = Relate.Table(function(c) { return c } )
 
 var state = function(name, abbriv) { return {name: name, abbriv: abbriv} }
-var states = db.Table(function(s) { return s.abbriv} )
+var states = Relate.Table(function(s) { return s.abbriv} )
+var statesTable
 var texas = state('Texas','TX')
 var florida = state('Florida','FL')
 var georgia = state('Georgia','GA')
@@ -124,6 +124,9 @@ describe("Inserts", function() {
 			statesWithPeopleResults[["NY", undefined]] = [newYork, undefined]
 			expect(statesWithPeople.getRows()).toEqual(statesWithPeopleResults)
 		})
+		it("should populate tables", function() {
+			statesTable = Relate.html.table(states, document.getElementById("relate.html.table"))
+		})
 	})
 })
 
@@ -220,7 +223,7 @@ describe("Removes", function() {
 	})	
 })
 
-var scalars = db.Scalars()
+var scalars = Relate.Scalars()
 var num
 describe("Scalars", function() {	
 	it("set", function() {
@@ -265,7 +268,7 @@ describe("Clears", function() {
 })
 
 describe("Sorts", function() {
-	var nums = db.Table(function(num) { return num })
+	var nums = Relate.Table(function(num) { return num })
 	var comparer = function(a,b) { return a - b }
 	var sortedNums = nums.sort(comparer)
 	var ns = [5,8,3,1,2,7,6,4]

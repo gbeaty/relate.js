@@ -19,7 +19,7 @@ Relate.SlickGrid = function() {
 		}
 
 		var listener = Relate.listener(inserted, updated, removed)
-		sorted.addToListeners(listener)
+		sorted.broadcastTo(listener)
 		listener.grid = grid
 		listener.getLength = function() { return sorted.getData().length }
 		listener.getItem = function(i) {
@@ -29,7 +29,7 @@ Relate.SlickGrid = function() {
 			sorted.removeFromListeners(listener)
 		}
 		listener.resume = function() {
-			sorted.addToListeners(listener)
+			sorted.broadcastTo(listener)
 		}
 
 		grid = new Slick.Grid(el, listener, cols, opts)
