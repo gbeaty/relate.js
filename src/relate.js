@@ -106,9 +106,7 @@ var factory = function() {
 		self.pub.get = function(key) { return rows[key] }
 		self.pub.toArray = function() {
 			var result = []
-			for(k in rows) if(rows.hasOwnProperty(k)) {
-				result.push(rows[k])
-			}
+			self.pub.forEach(function(r) { result.push(r) })
 			return result
 		}
 		self.pub.forEach = function(f) {
