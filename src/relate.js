@@ -18,6 +18,33 @@ var factory = function() {
 	}
 	var scalarKeyGen = function(scalar) { return scalar.key }
 	var zero = function() { return 0 }
+	var transactions = []
+	// Faster than Array.forEach(), but executes in reverse order.
+	var forEach = function(array, op) {
+		var i = array.length
+		while(--i >= 0) {
+			op(array[i])
+		}
+	}
+
+	relate.transact = function(name, t) {
+		if(!t) {
+			t = name
+			name = "\n" + t.toString() + "\n"
+		}
+		t.relations = []
+		transactions.push(t)
+		try {
+			t()
+		} catch(err) {
+			var i = t.relations.length
+			while(--i >= 0) {
+				t.relations[i].rollback()
+			}
+			console.log("Transaction '" + name + "' rolled back due to exception '" + err + "'.")
+		}
+		transactions.pop()
+	}
 
 	var cartProd = function(paramArray) {
 		function addTo(curr, args) {
@@ -47,12 +74,6 @@ var factory = function() {
 		}
 		self.stopBroadcastingTo = function(rel) {
 			self.listeners = self.listeners.filter(function(r) { return r !== rel })
-		}
-		self.forListeners = function(op) {
-			var i = self.listeners.length
-			while(--i >= 0) {				
-				op(self.listeners[i])
-			}
 		}
 
 		return self
@@ -91,8 +112,10 @@ var factory = function() {
 			return result
 		}
 		self.pub.forEach = function(f) {
-			for(k in rows) if(rows.hasOwnProperty(k)) {
-				f(rows[k])
+			var keys = Object.keys(rows)
+			var len = keys.length
+			for(var i=0; i<len; i++) {
+				f(rows[keys[i]])
 			}
 		}
 
@@ -113,13 +136,13 @@ var factory = function() {
 		}
 
 		self.signalInsert = function(row) {
-			self.pub.forListeners(function(l) { l.sourceInsert(self, row) })
+			forEach(self.pub.listeners, function(l) { l.sourceInsert(self, row) })
 		}
 		self.signalUpdate = function(last, next) {
-			self.pub.forListeners(function(l) { l.sourceUpdate(self, last, next) })
+			forEach(self.pub.listeners, function(l) { l.sourceUpdate(self, last, next) })
 		}
 		self.signalRemove = function(row) {
-			self.pub.forListeners(function(l) { l.sourceRemove(self, row) })
+			forEach(self.pub.listeners, function(l) { l.sourceRemove(self, row) })
 		}
 
 		self.insert = function(row) {
@@ -187,6 +210,13 @@ var factory = function() {
 			self.pub.broadcastTo(listener)
 		}
 
+		self.rollback = function() {
+		}
+
+		self.pub.exists = function(key) {
+			return rows[key] !== undefined
+		}
+
 		return self
 	}
 
@@ -237,14 +267,12 @@ var factory = function() {
 	relate.Table = function(keyGen) {
 		var self = relation(keyGen ? keyGen : idGen)
 
-		var change = function(rows, op) {
-			rows.forEach(op)
-		}
-		self.pub.insert = function(rows) { change(rows, self.insert)    }
-		self.pub.remove = function(keys) { change(keys, self.removeKey) }
-		self.pub.update = function(rows) { change(rows, self.update)    }
-		self.pub.upsert = function(rows) { change(rows, self.upsert)    }
-		self.pub.clear  = function() {
+		self.pub.insert 					 = function(rows) { rows.forEach(self.insert)    }
+		self.pub.insertIfNotExists = function(rows) { rows.forEach(self.insertIfNotExists) }
+		self.pub.remove						 = function(keys) { keys.forEach(self.removeKey) }
+		self.pub.update						 = function(rows) { rows.forEach(self.update)    }
+		self.pub.upsert						 = function(rows) { rows.forEach(self.upsert)    }
+		self.pub.clear 						 = function() {
 			for(k in self.rows) if(self.rows.hasOwnProperty(k)) {
 				self.removeKey(k)
 			}
@@ -294,6 +322,7 @@ var factory = function() {
 	var triggerKeyGen = function(row) {
 		return [row.key, row.name]
 	}
+
 	relate.KeyTrigger = function(base) {
 		var handlers = relation(triggerKeyGen, arrayKeyCompare)
 		var pub = {}
@@ -335,6 +364,7 @@ var factory = function() {
 
 		return derived({ pub: pub }, [base], sourceInsert, sourceUpdate, sourceRemove).pub
 	}
+
 	relate.Scalars = function() {
 		var scalars = relation(scalarKeyGen)
 		var pub = relate.KeyTrigger(scalars)
@@ -448,7 +478,7 @@ var factory = function() {
 
 		var update = function(newTotal) {
 			total = newTotal
-			self.pub.forListeners(function(l) {
+			forEach(self.pub.listeners, function(l) {
 				l.signalUpdate(total, newTotal)
 			})
 		}
@@ -464,6 +494,9 @@ var factory = function() {
 		}
 
 		var self = derivedRelation(bases, undefined, sourceInsert, sourceUpdate, sourceRemove)
+		// var self = Relate.listener(sourceInsert, sourceUpdate, sourceRemove)		
+		// bases.forEach(function(b) { b.pub.rebroadcastsTo(self) })
+
 		return function() { return total }
 	}
 
@@ -696,6 +729,9 @@ var factory = function() {
 			}
 			return res
 		}
+
+		self.pub.head = function() { return head }
+		self.pub.tail = function() { return tail }
 
 		return self.pub
 	}
