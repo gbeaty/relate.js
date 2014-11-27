@@ -3,7 +3,6 @@ var factory = function() {
 	var lastId = 0
 	var identity = function(a) { return a }
 	var noop = function() {}
-	var noobj = {}
 	var idGen = function(row) { return row.id }
 	var scalarKeyCompare = function(k1, k2) { return k1 === k2 }
 	var arrayKeyCompare = function(k1, k2) {
@@ -18,6 +17,7 @@ var factory = function() {
 	}
 	var scalarKeyGen = function(scalar) { return scalar.key }
 	var zero = function() { return 0 }
+	var one = function() { return 1 }
 	var transactions = []
 	// Faster than Array.forEach(), but executes in reverse order.
 	var forEach = function(array, op) {
@@ -242,8 +242,8 @@ var factory = function() {
 		self.pub.join = function(sources, keyGen, requires) {
 			return Relate.Join([self].concat(sources), keyGen, requires)
 		}
-		self.pub.count = function(counter) {
-			return Relate.Count([self], counter)
+		self.pub.sum = function(summer) {
+			return Relate.Sum([self], summer)
 		}
 		self.pub.sort = function(comparer) {
 			return sort(self, comparer)
@@ -470,13 +470,14 @@ var factory = function() {
 		return self.pub
 	}
 
-	relate.Aggregate = function(bases, initial, apply, unapply) {		
+	relate.Aggregate = function(bases, initial, apply, unapply) {
 		var total = initial
-		var self = noobj
+		var self = broadcasts()
+		self.pub = {}
 
 		var update = function(newTotal) {
 			total = newTotal
-			forEach(self.pub.listeners, function(l) {
+			forEach(self.listeners, function(l) {
 				l.signalUpdate(total, newTotal)
 			})
 		}
@@ -491,28 +492,18 @@ var factory = function() {
 			update(unapply(total, row, table))
 		}
 
-		var self = derivedRelation(bases, undefined, sourceInsert, sourceUpdate, sourceRemove)
-		// var self = Relate.listener(sourceInsert, sourceUpdate, sourceRemove)		
-		// bases.forEach(function(b) { b.pub.rebroadcastsTo(self) })
+		var self = derived(self, bases, sourceInsert, sourceUpdate, sourceRemove)
 
 		return function() { return total }
 	}
-
-	relate.Sum = function(bases, apply) {
+	relate.Sum = function(bases, selector) {
 		var add = function(total, row, table) {
-			return total + apply(row, table)
+			return total + selector(row, table)
 		}
 		var sub = function(total, row, table) {
-			return total - apply(row, table)
+			return total - selector(row, table)
 		}
 		return relate.Aggregate(bases, 0, add, sub)
-	}
-
-	relate.Count = function(bases, apply) {
-		var count = function(row, table) {
-			return apply(row, table) ? 1 : 0
-		}
-		return relate.Sum(bases, count)
 	}
 
 	var sort = function(relation, comparer) {
@@ -735,10 +726,10 @@ var factory = function() {
 	}
 
 	relate.Join = function(sources, required) {
-		var self = noobj
+		var self = {}
 
 		if(!required)
-			required = noobj
+			required = {}
 
 		var keyGen = function(join) {
 			var key = []
