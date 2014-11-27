@@ -242,8 +242,11 @@ var factory = function() {
 		self.pub.join = function(sources, keyGen, requires) {
 			return Relate.Join([self].concat(sources), keyGen, requires)
 		}
-		self.pub.sum = function(summer) {
-			return Relate.Sum([self], summer)
+		self.pub.sum = function(selector) {
+			return Relate.Sum([self], selector)
+		}
+		self.pub.mean = function(selector) {
+			return Relate.Mean([self], selector)	
 		}
 		self.pub.sort = function(comparer) {
 			return sort(self, comparer)
@@ -471,30 +474,32 @@ var factory = function() {
 	}
 
 	relate.Aggregate = function(bases, initial, apply, unapply) {
-		var total = initial
+		var value = initial
 		var self = broadcasts()
 		self.pub = {}
 
-		var update = function(newTotal) {
-			total = newTotal
-			forEach(self.listeners, function(l) {
-				l.signalUpdate(total, newTotal)
-			})
+		var update = function(newValue) {
+			if(value !== newValue) {
+				value = newValue
+				forEach(self.listeners, function(l) {
+					l.signalUpdate(value, newValue)
+				})
+			}			
 		}
 
 		var sourceInsert = function(table, row) {
-			update(apply(total, row, table))
+			update(apply(value, row, table))
 		}
 		var sourceUpdate = function(table, last, next) {
-			update(apply(unapply(total, last, table), next, table))
+			update(apply(unapply(value, last, table), next, table))
 		}
 		var sourceRemove = function(table, row) {
-			update(unapply(total, row, table))
+			update(unapply(value, row, table))
 		}
 
 		var self = derived(self, bases, sourceInsert, sourceUpdate, sourceRemove)
 
-		return function() { return total }
+		return function() { return value }
 	}
 	relate.Sum = function(bases, selector) {
 		var add = function(total, row, table) {
@@ -504,6 +509,24 @@ var factory = function() {
 			return total - selector(row, table)
 		}
 		return relate.Aggregate(bases, 0, add, sub)
+	}
+	relate.Mean = function(bases, selector) {
+		var total = 0
+		var size = 0
+		forEach(bases, function(b) {
+			size = size + b.pub.getRowCount()
+		})
+		var add = function(lastMean, row, table) {
+			total = total + selector(row, table)
+			size++
+			return total / size
+		}
+		var sub = function(lastMean, row, table) {
+			total = total - selector(row, table)
+			size--
+			return total / size
+		}
+		return relate.Aggregate(bases, 0, add, sub)	
 	}
 
 	var sort = function(relation, comparer) {

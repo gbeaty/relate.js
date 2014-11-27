@@ -42,9 +42,11 @@ var byAge = people.sort(function(a,b) {
 })
 var stateGroup = people.group(function(p) { return p.state })
 var orderedStates = states.order()
-var peopleFromTexas = people.count(function(row) {
+var ageSum = people.sum(function(p) { return p.age })
+var peopleFromTexasCount = people.sum(function(row) {
 	return row.state === "TX"
 })
+var meanAge = people.mean(function(p) { return p.age })
 var peopleOrStates = stateGroup.join([states])
 var peopleWithStates = stateGroup.join([states], [true, false])
 var statesWithPeople = states.join([stateGroup], [true, false])
@@ -56,15 +58,27 @@ var peopleWithStatesResults = {}
 
 var peopleKeyTrigger = people.keyTrigger()
 var bobState
-var setBobState = function(last, next) {
+peopleKeyTrigger.listen("Bob", "Bob", function(last, next) {
 	bobState = next ? next.state : undefined
-}
-peopleKeyTrigger.listen("Bob", "Bob", setBobState)
+})
+
+describe("Transactions", function() {
+	it("should work when there are no errors", function() {
+		Relate.transact(function() {
+			people.insert(peopleToInsert)
+			states.insert(statesToInsert)
+		})
+	})
+	it("should rollback in case of an error", function() {
+		Relate.transact(function() {
+			// people.insert(peopleToInsert)
+		})
+	})
+})
 
 describe("Inserts", function() {
 	it("should insert rows", function() {
-		people.insert(peopleToInsert)
-		states.insert(statesToInsert)
+		
 	})
 	it("should not insert duplicate primary keys", function() {
 		expect(function() { people.insert([bob]) }).toThrow(new Error("Primary key constraint violation for key: Bob"))
@@ -98,8 +112,12 @@ describe("Inserts", function() {
 			expect(stateGroup.getGroup("TX").rows).toEqual({ Lumbergh: lumbergh, Milton: milton })
 			expect(stateGroup.getGroup("FL").rows).toEqual({ Bob: bob })
 		})
-		it("counters", function() {
-			expect(peopleFromTexas()).toEqual(2)
+		it("sums", function() {
+			expect(ageSum()).toEqual(132)
+			expect(peopleFromTexasCount()).toEqual(2)
+		})
+		it("means", function() {
+			expect(meanAge()).toEqual((40 + 50 + 42)/3)
 		})
 		it("joins with required people", function() {
 			peopleWithStatesResults[["Bob", "FL"]] = [bob,florida]
@@ -161,8 +179,12 @@ describe("Updates", function() {
 			expect(stateGroup.getGroup("TX").rows).toEqual({ Bob: bob2, Lumbergh: lumbergh, Milton: milton })
 			expect(stateGroup.getGroup("FL").rows).toEqual({})
 		})
-		it("counters", function() {
-			expect(peopleFromTexas()).toEqual(3)
+		it("sums", function() {
+			expect(ageSum()).toEqual(137)
+			expect(peopleFromTexasCount()).toEqual(3)
+		})
+		it("means", function() {
+			expect(meanAge()).toEqual((45 + 50 + 42)/3)
 		})
 		it("joins with required people", function() {
 			delete peopleWithStatesResults[["Bob", "FL"]]
@@ -192,9 +214,13 @@ describe("Removes", function() {
 		people.remove(["Milton"])
 		expect(people.getRows()).toEqual({ Bob: bob2, Lumbergh: lumbergh })
 	})
-	it("affect row counts", function() {
+	it("affect sums", function() {
+		expect(ageSum()).toEqual(137 - 42)
 		expect(people.getRowCount()).toEqual(2)
 	})
+	it("affect means", function() {
+		expect(meanAge()).toEqual((45 + 50)/2)
+	})	
 	describe("should work with", function() {
 		it("orders", function() {
 			expect(orderedPeople.toArray()).toEqual([bob2, lumbergh])
@@ -326,5 +352,21 @@ describe("simpleRelation", function() {
 		var statesString = ""
 		states.forEach(function(s) { statesString = statesString + s.abbriv + " " } )
 		expect(statesString).toEqual("TX FL GA NY ")
+	})
+	it("know which keys exist", function() {
+		expect(states.exists("VA")).toEqual(false)
+		expect(states.exists("FL")).toEqual(true)
+	})
+})
+
+describe("html", function() {
+	describe("attribute", function() {
+		it("should work", function() {
+			expect(Relate.html.attributes([["id",1]])).toEqual(' id="1"')
+			expect(Relate.html.attributes([["id",1],["class","test"]])).toEqual(' id="1" class="test"')			
+		})
+		it("should generate blanks", function() {
+			expect(Relate.html.attributes([])).toEqual('')
+		})		
 	})
 })
